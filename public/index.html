@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Task tracker</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  body{margin:0;}
+  :root{
+    --ink:#22282f; --ink-soft:#5c6570; --paper:#f6f5f1; --card:#ffffff;
+    --line:#e2e0d8; --line-strong:#c9c6ba;
+    --teal:#0f6e56; --teal-bg:#e1f5ee; --teal-line:#5dcaa5;
+    --amber:#854f0b; --amber-bg:#faeeda; --amber-line:#ef9f27;
+    --coral:#993c1d; --coral-bg:#faece7; --coral-line:#f0997b;
+    --slate:#444441; --slate-bg:#f1efe8;
+    --font-display:'Fraunces', serif; --font-body:'Inter', sans-serif; --font-mono:'JetBrains Mono', monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --ink:#ece9e2; --ink-soft:#a7a396; --paper:#1c1c1a; --card:#242422;
+      --line:#3a3935; --line-strong:#4c4b45;
+      --teal-bg:#0b2b23; --amber-bg:#2c2007; --coral-bg:#301709; --slate-bg:#2c2c2a;
+    }
+  }
+  *{box-sizing:border-box;}
+  #tt-root{font-family:var(--font-body);color:var(--ink);background:var(--paper);padding:1.5rem;border-radius:14px;max-width:1100px;margin:0 auto;}
+  #tt-root h1,#tt-root h2,#tt-root h3{font-family:var(--font-display);font-weight:600;margin:0;}
+  #tt-root button{font-family:var(--font-body);cursor:pointer;}
+  #tt-root input,#tt-root textarea,#tt-root select{font-family:var(--font-body);}
+  .tt-btn{background:transparent;border:0.5px solid var(--line-strong);border-radius:8px;padding:7px 13px;font-size:13px;color:var(--ink);transition:background .12s;}
+  .tt-btn:hover{background:var(--slate-bg);}
+  .tt-btn:active{transform:scale(0.98);}
+  .tt-btn-primary{background:var(--ink);color:var(--paper);border:0.5px solid var(--ink);}
+  .tt-btn-primary:hover{opacity:.88;background:var(--ink);}
+  .tt-input,.tt-textarea,.tt-select{width:100%;border:0.5px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--ink);}
+  .tt-input:focus,.tt-textarea:focus,.tt-select:focus{outline:2px solid var(--teal-line);outline-offset:1px;}
+  .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:20px;font-family:var(--font-mono);}
+</style>
+</head>
+<body>
+
+<div id="tt-root">
+  <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:1.25rem;flex-wrap:wrap;gap:12px;">
+    <div>
+      <p style="font-size:11px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;margin:0 0 4px;font-family:var(--font-mono);">Manager check-in ledger</p>
+      <h1 style="font-size:26px;">Task board</h1>
+    </div>
+    <button class="tt-btn tt-btn-primary" id="tt-add-btn">+ New task</button>
+  </div>
+
+  <div id="tt-board" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:1.75rem;"></div>
+
+  <div style="border-top:0.5px solid var(--line);padding-top:1.25rem;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:8px;">
+      <h2 style="font-size:17px;">Daily report</h2>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="tt-report-date" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;"></select>
+        <button class="tt-btn" id="tt-copy-report">Copy</button>
+        <button class="tt-btn" id="tt-download-report">Download .txt</button>
+      </div>
+    </div>
+    <pre id="tt-report-box" style="background:var(--card);border:0.5px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
+    <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
+  </div>
+</div>
+
+<div id="tt-modal-layer"></div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'tasks';
+  let tasks = [];
+  const COLS = [
+    {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
+    {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
+    {key:'done', label:'Done', bg:'var(--teal-bg)', border:'var(--teal-line)'}
+  ];
+
+  function uid(){ return 't' + Math.random().toString(36).slice(2,10); }
+  function todayStr(d){ const dt = d || new Date(); return dt.toISOString().slice(0,10); }
+  function fmtDate(s){ const d=new Date(s+'T00:00:00'); return d.toLocaleDateString(undefined,{weekday:'short',month:'short',day:'numeric'}); }
+  function fmtTime(iso){ return new Date(iso).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'}); }
+
+  async function loadTasks(){
+    try{
+      const res = await fetch('/api/tasks');
+      tasks = await res.json();
+    }catch(e){ tasks = []; }
+    render();
+  }
+  async function saveTasks(){
+    try{
+      await fetch('/api/tasks', {
+        method:'PUT',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(tasks)
+      });
+    }catch(e){ console.error('Storage error', e); }
+  }
+
+  function isBlocked(task){
+    return (task.dependsOn||[]).some(id=>{
+      const dep = tasks.find(t=>t.id===id);
+      return dep && dep.status !== 'done';
+    });
+  }
+  function blockers(task){
+    return (task.dependsOn||[]).map(id=>tasks.find(t=>t.id===id)).filter(t=>t && t.status!=='done');
+  }
+
+  function taskCard(task){
+    const blocked = isBlocked(task);
+    const blockList = blockers(task);
+    const card = document.createElement('div');
+    card.style.cssText = 'background:var(--card);border:0.5px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;';
+    let html = `<p style="font-size:14px;font-weight:500;margin:0 0 4px;">${escapeHtml(task.title)}</p>`;
+    if(task.notes) html += `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">${escapeHtml(task.notes)}</p>`;
+    if(blocked){
+      html += `<div class="tt-chip" style="background:var(--coral-bg);color:var(--coral);margin-bottom:6px;">blocked by ${blockList.map(b=>escapeHtml(b.title)).join(', ')}</div><br/>`;
+    } else if((task.dependsOn||[]).length){
+      html += `<div class="tt-chip" style="background:var(--teal-bg);color:var(--teal);margin-bottom:6px;">dependencies clear</div><br/>`;
+    }
+    if(task.status==='done' && task.completedAt){
+      html += `<p style="font-size:11px;font-family:var(--font-mono);color:var(--ink-soft);margin:0 0 8px;">done ${fmtTime(task.completedAt)} · ${todayStr(new Date(task.completedAt))===todayStr()?'today':fmtDate(todayStr(new Date(task.completedAt)))}</p>`;
+    }
+    card.innerHTML = html;
+
+    const controls = document.createElement('div');
+    controls.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;';
+    COLS.forEach(c=>{
+      if(c.key===task.status) return;
+      const b = document.createElement('button');
+      b.className='tt-btn';
+      b.style.cssText='font-size:11px;padding:4px 8px;';
+      b.textContent = '→ ' + c.label;
+      if(c.key==='done' && blocked){
+        b.title = 'Still blocked by an unfinished dependency';
+        b.style.opacity='0.55';
+      }
+      b.onclick = ()=>{
+        task.status = c.key;
+        task.completedAt = c.key==='done' ? new Date().toISOString() : null;
+        saveTasks(); render();
+      };
+      controls.appendChild(b);
+    });
+    const edit = document.createElement('button');
+    edit.className='tt-btn';
+    edit.style.cssText='font-size:11px;padding:4px 8px;';
+    edit.textContent='Edit';
+    edit.onclick = ()=>openModal(task.id);
+    controls.appendChild(edit);
+    const del = document.createElement('button');
+    del.className='tt-btn';
+    del.style.cssText='font-size:11px;padding:4px 8px;color:var(--coral);';
+    del.textContent='Remove';
+    del.onclick = ()=>{
+      tasks = tasks.filter(t=>t.id!==task.id);
+      tasks.forEach(t=>{ t.dependsOn = (t.dependsOn||[]).filter(id=>id!==task.id); });
+      saveTasks(); render();
+    };
+    controls.appendChild(del);
+    card.appendChild(controls);
+    return card;
+  }
+
+  function escapeHtml(s){
+    const d=document.createElement('div'); d.textContent = s||''; return d.innerHTML;
+  }
+
+  function render(){
+    const board = document.getElementById('tt-board');
+    board.innerHTML = '';
+    COLS.forEach(col=>{
+      const colEl = document.createElement('div');
+      colEl.style.cssText = `background:${col.bg==='var(--card)'?'var(--slate-bg)':col.bg};border-radius:12px;padding:10px;min-height:80px;`;
+      const items = tasks.filter(t=>t.status===col.key);
+      colEl.innerHTML = `<p style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 8px;font-family:var(--font-mono);">${col.label} · ${items.length}</p>`;
+      if(!items.length){
+        const empty = document.createElement('p');
+        empty.style.cssText='font-size:12.5px;color:var(--ink-soft);margin:0;';
+        empty.textContent = col.key==='todo' ? 'Add a task to get started.' : 'Nothing here yet.';
+        colEl.appendChild(empty);
+      }
+      items.forEach(t=>colEl.appendChild(taskCard(t)));
+      board.appendChild(colEl);
+    });
+    renderReportControls();
+    renderReport();
+  }
+
+  function completionDates(){
+    const set = new Set();
+    tasks.forEach(t=>{ if(t.completedAt) set.add(todayStr(new Date(t.completedAt))); });
+    set.add(todayStr());
+    return Array.from(set).sort().reverse();
+  }
+
+  function renderReportControls(){
+    const sel = document.getElementById('tt-report-date');
+    const prev = sel.value;
+    const dates = completionDates();
+    sel.innerHTML = dates.map(d=>`<option value="${d}">${d===todayStr()?'Today · ':''}${fmtDate(d)}</option>`).join('');
+    sel.value = dates.includes(prev) ? prev : todayStr();
+  }
+
+  function buildReportText(dateStr){
+    const done = tasks.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr);
+    const blocked = tasks.filter(t=>t.status!=='done' && isBlocked(t));
+    const inProgress = tasks.filter(t=>t.status==='inprogress' && !isBlocked(t));
+    let out = `Daily report — ${fmtDate(dateStr)}\n`;
+    out += '='.repeat(28) + '\n\n';
+    out += `Completed (${done.length})\n`;
+    if(done.length){
+      done.sort((a,b)=>a.completedAt.localeCompare(b.completedAt));
+      done.forEach(t=>{ out += `  - [${fmtTime(t.completedAt)}] ${t.title}${t.notes? ' — ' + t.notes : ''}\n`; });
+    } else {
+      out += '  (nothing marked done on this date)\n';
+    }
+    out += `\nIn progress (${inProgress.length})\n`;
+    inProgress.forEach(t=>{ out += `  - ${t.title}\n`; });
+    if(!inProgress.length) out += '  (none)\n';
+    out += `\nBlocked (${blocked.length})\n`;
+    blocked.forEach(t=>{ out += `  - ${t.title} — waiting on ${blockers(t).map(b=>b.title).join(', ')}\n`; });
+    if(!blocked.length) out += '  (none)\n';
+    return out;
+  }
+
+  function renderReport(){
+    const sel = document.getElementById('tt-report-date');
+    const dateStr = sel.value || todayStr();
+    document.getElementById('tt-report-box').textContent = buildReportText(dateStr);
+  }
+
+  document.getElementById('tt-report-date').addEventListener('change', renderReport);
+  document.getElementById('tt-copy-report').addEventListener('click', ()=>{
+    const text = document.getElementById('tt-report-box').textContent;
+    navigator.clipboard.writeText(text).then(()=>{
+      const btn = document.getElementById('tt-copy-report');
+      const orig = btn.textContent; btn.textContent='Copied';
+      setTimeout(()=>btn.textContent=orig, 1400);
+    });
+  });
+  document.getElementById('tt-download-report').addEventListener('click', ()=>{
+    const text = document.getElementById('tt-report-box').textContent;
+    const dateStr = document.getElementById('tt-report-date').value;
+    const blob = new Blob([text], {type:'text/plain'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `daily-report-${dateStr}.txt`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  });
+
+  function openModal(editId){
+    const layer = document.getElementById('tt-modal-layer');
+    const editing = editId ? tasks.find(t=>t.id===editId) : null;
+    const otherTasks = tasks.filter(t=>t.id!==editId);
+    const depOptions = otherTasks.map(t=>{
+      const checked = editing && (editing.dependsOn||[]).includes(t.id) ? 'checked' : '';
+      return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0;"><input type="checkbox" value="${t.id}" ${checked}/> ${escapeHtml(t.title)}</label>`;
+    }).join('') || '<p style="font-size:12.5px;color:var(--ink-soft);">No other tasks yet to depend on.</p>';
+    layer.innerHTML = `
+    <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
+      <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:360px;max-width:90vw;border:0.5px solid var(--line);">
+        <h3 style="font-size:16px;margin-bottom:12px;">${editing ? 'Edit task' : 'New task'}</h3>
+        <label style="font-size:12px;color:var(--ink-soft);">Title</label>
+        <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
+        <label style="font-size:12px;color:var(--ink-soft);">Notes (optional)</label>
+        <textarea class="tt-textarea" id="tt-new-notes" style="margin:4px 0 10px;min-height:56px;" placeholder="Any context for this task">${editing ? escapeHtml(editing.notes||'') : ''}</textarea>
+        <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
+        <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 14px;">${depOptions}</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="tt-btn" id="tt-cancel">Cancel</button>
+          <button class="tt-btn tt-btn-primary" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('tt-cancel').onclick = ()=>{ layer.innerHTML=''; };
+    document.getElementById('tt-save').onclick = ()=>{
+      const title = document.getElementById('tt-new-title').value.trim();
+      if(!title) return;
+      const notes = document.getElementById('tt-new-notes').value.trim();
+      const deps = Array.from(layer.querySelectorAll('#tt-dep-list input:checked')).map(i=>i.value);
+      if(editing){
+        editing.title = title;
+        editing.notes = notes;
+        editing.dependsOn = deps;
+      } else {
+        tasks.push({id:uid(), title, notes, status:'todo', dependsOn:deps, createdAt:new Date().toISOString(), completedAt:null});
+      }
+      saveTasks(); render();
+      layer.innerHTML='';
+    };
+  }
+  document.getElementById('tt-add-btn').addEventListener('click', openModal);
+
+  loadTasks();
+})();
+</script>
+</body>
+</html>
