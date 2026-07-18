@@ -46,7 +46,10 @@
       <p style="font-size:11px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;margin:0 0 4px;font-family:var(--font-mono);">Manager check-in ledger</p>
       <h1 style="font-size:26px;">Task board</h1>
     </div>
-    <button class="tt-btn tt-btn-primary" id="tt-add-btn">+ New task</button>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <button class="tt-btn" id="tt-people-btn">Colleagues</button>
+      <button class="tt-btn tt-btn-primary" id="tt-add-btn">+ New task</button>
+    </div>
   </div>
 
   <div id="tt-board" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:1.75rem;"></div>
@@ -57,7 +60,7 @@
       <div style="display:flex;gap:8px;align-items:center;">
         <select id="tt-report-date" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;"></select>
         <button class="tt-btn" id="tt-copy-report">Copy</button>
-        <button class="tt-btn" id="tt-download-report">Download .txt</button>
+        <button class="tt-btn" id="tt-download-report">Download .docx</button>
       </div>
     </div>
     <pre id="tt-report-box" style="background:var(--card);border:0.5px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
@@ -71,11 +74,21 @@
 (function(){
   const STORAGE_KEY = 'tasks';
   let tasks = [];
+  let people = [];
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
     {key:'done', label:'Done', bg:'var(--teal-bg)', border:'var(--teal-line)'}
   ];
+  const PRIORITIES = [
+    {key:'urgent', label:'Urgent', color:'#d64545'},
+    {key:'high',   label:'High',   color:'#e08a3c'},
+    {key:'medium', label:'Medium', color:'#d9b038'},
+    {key:'low',    label:'Low',    color:'#4a9d6e'}
+  ];
+  const PRIORITY_ORDER = {urgent:0, high:1, medium:2, low:3};
+  function priorityOf(task){ return PRIORITIES.some(p=>p.key===task.priority) ? task.priority : 'medium'; }
+  function priorityMeta(task){ const k=priorityOf(task); return PRIORITIES.find(p=>p.key===k); }
 
   function uid(){ return 't' + Math.random().toString(36).slice(2,10); }
   function todayStr(d){ const dt = d || new Date(); return dt.toISOString().slice(0,10); }
@@ -98,6 +111,55 @@
       });
     }catch(e){ console.error('Storage error', e); }
   }
+  async function loadPeople(){
+    try{
+      const res = await fetch('/api/people');
+      people = await res.json();
+    }catch(e){ people = []; }
+  }
+  function personById(id){ return people.find(p=>p.id===id); }
+  function hasExternalBlock(task){ return !!(task.externalDependency && !task.externalDependency.resolvedAt); }
+
+  async function flagDependency(taskId, personId, note, statusEl){
+    try{
+      const res = await fetch(`/api/tasks/${taskId}/flag-dependency`, {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ personId, note })
+      });
+      const data = await res.json();
+      if(!res.ok){
+        statusEl.style.color='var(--coral)';
+        statusEl.textContent = data.error || 'Could not flag dependency.';
+        return { ok:false };
+      }
+      const t = tasks.find(x=>x.id===taskId);
+      if(t) t.externalDependency = data.task.externalDependency;
+      if(data.emailed){
+        statusEl.style.color='var(--teal)';
+        statusEl.textContent = `Emailed ${personById(personId)?.name || 'colleague'}`;
+      } else {
+        statusEl.style.color='var(--coral)';
+        statusEl.textContent = "Saved, but the email didn't send — check your SMTP settings.";
+      }
+      render();
+      return { ok:true, emailed:data.emailed };
+    }catch(e){
+      statusEl.style.color='var(--coral)';
+      statusEl.textContent = 'Network error — could not flag dependency.';
+      return { ok:false };
+    }
+  }
+
+  async function resolveDependency(taskId){
+    try{
+      const res = await fetch(`/api/tasks/${taskId}/resolve-dependency`, { method:'POST' });
+      const data = await res.json();
+      const t = tasks.find(x=>x.id===taskId);
+      if(t && data.task) t.externalDependency = data.task.externalDependency;
+      render();
+    }catch(e){ console.error('Resolve failed', e); }
+  }
 
   function isBlocked(task){
     return (task.dependsOn||[]).some(id=>{
@@ -112,9 +174,13 @@
   function taskCard(task){
     const blocked = isBlocked(task);
     const blockList = blockers(task);
+    const prio = priorityMeta(task);
     const card = document.createElement('div');
-    card.style.cssText = 'background:var(--card);border:0.5px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:8px;';
-    let html = `<p style="font-size:14px;font-weight:500;margin:0 0 4px;">${escapeHtml(task.title)}</p>`;
+    card.style.cssText = `background:var(--card);border:0.5px solid var(--line);border-left:4px solid ${prio.color};border-radius:10px;padding:10px 12px;margin-bottom:8px;`;
+    let html = `<div style="display:flex;align-items:center;gap:6px;margin:0 0 4px;">`
+      + `<span class="tt-chip" style="background:transparent;border:0.5px solid ${prio.color};color:${prio.color};">`
+      + `<span style="width:7px;height:7px;border-radius:50%;background:${prio.color};display:inline-block;"></span>${prio.label}</span></div>`;
+    html += `<p style="font-size:14px;font-weight:500;margin:0 0 4px;">${escapeHtml(task.title)}</p>`;
     if(task.notes) html += `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">${escapeHtml(task.notes)}</p>`;
     if(blocked){
       html += `<div class="tt-chip" style="background:var(--coral-bg);color:var(--coral);margin-bottom:6px;">blocked by ${blockList.map(b=>escapeHtml(b.title)).join(', ')}</div><br/>`;
@@ -126,6 +192,17 @@
     }
     card.innerHTML = html;
 
+    if(hasExternalBlock(task)){
+      const person = personById(task.externalDependency.personId);
+      const chip = document.createElement('button');
+      chip.className = 'tt-chip';
+      chip.style.cssText = 'background:#efe7fb;color:#6b3fc0;border:0.5px solid #b79ce8;margin-bottom:8px;cursor:pointer;';
+      chip.textContent = `⏳ waiting on ${person ? person.name : 'a colleague'}`;
+      chip.onclick = ()=>openDependencyModal(task.id);
+      card.appendChild(chip);
+      card.appendChild(document.createElement('br'));
+    }
+
     const controls = document.createElement('div');
     controls.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;';
     COLS.forEach(c=>{
@@ -133,7 +210,7 @@
       const b = document.createElement('button');
       b.className='tt-btn';
       b.style.cssText='font-size:11px;padding:4px 8px;';
-      b.textContent = '→ ' + c.label;
+      b.textContent = (task.status==='done' && c.key==='todo') ? '↺ Reopen' : ('→ ' + c.label);
       if(c.key==='done' && blocked){
         b.title = 'Still blocked by an unfinished dependency';
         b.style.opacity='0.55';
@@ -175,7 +252,11 @@
     COLS.forEach(col=>{
       const colEl = document.createElement('div');
       colEl.style.cssText = `background:${col.bg==='var(--card)'?'var(--slate-bg)':col.bg};border-radius:12px;padding:10px;min-height:80px;`;
-      const items = tasks.filter(t=>t.status===col.key);
+      const items = tasks.filter(t=>t.status===col.key).sort((a,b)=>{
+        const pa=PRIORITY_ORDER[priorityOf(a)], pb=PRIORITY_ORDER[priorityOf(b)];
+        if(pa!==pb) return pa-pb;
+        return (a.createdAt||'').localeCompare(b.createdAt||'');
+      });
       colEl.innerHTML = `<p style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 8px;font-family:var(--font-mono);">${col.label} · ${items.length}</p>`;
       if(!items.length){
         const empty = document.createElement('p');
@@ -205,26 +286,76 @@
     sel.value = dates.includes(prev) ? prev : todayStr();
   }
 
+  function asSentence(note){
+    const s = String(note||'').trim();
+    if(!s) return '';
+    return /[.!?]$/.test(s) ? s : s + '.';
+  }
+  function fmtShort(iso){ return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
+  function externalTail(task){
+    const dep = task.externalDependency;
+    const name = personById(dep.personId)?.name || 'a colleague';
+    const status = dep.notifiedAt ? 'no response yet' : 'email not sent yet';
+    return `flagged to ${name} on ${fmtShort(dep.flaggedAt)} — ${status}`;
+  }
+
   function buildReportText(dateStr){
-    const done = tasks.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr);
-    const blocked = tasks.filter(t=>t.status!=='done' && isBlocked(t));
-    const inProgress = tasks.filter(t=>t.status==='inprogress' && !isBlocked(t));
+    const done = tasks.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
+      .sort((a,b)=>a.completedAt.localeCompare(b.completedAt));
+    const blocked = tasks.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)));
+    const inProgress = tasks.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t));
+
     let out = `Daily report — ${fmtDate(dateStr)}\n`;
     out += '='.repeat(28) + '\n\n';
+    out += `${done.length} task${done.length===1?'':'s'} completed, ${inProgress.length} in progress, ${blocked.length} blocked.\n\n`;
+
     out += `Completed (${done.length})\n`;
     if(done.length){
-      done.sort((a,b)=>a.completedAt.localeCompare(b.completedAt));
-      done.forEach(t=>{ out += `  - [${fmtTime(t.completedAt)}] ${t.title}${t.notes? ' — ' + t.notes : ''}\n`; });
+      done.forEach(t=>{
+        let s = `At ${fmtTime(t.completedAt)}, you completed ${t.title}. `;
+        if(t.notes) s += asSentence(t.notes) + ' ';
+        const pr = priorityOf(t);
+        if(pr==='urgent'||pr==='high') s += `This was flagged ${priorityMeta(t).label}. `;
+        const dependents = tasks.filter(x=>(x.dependsOn||[]).includes(t.id));
+        if(dependents.length) s += `This unblocks: ${dependents.map(d=>d.title).join(', ')}.`;
+        out += s.trim() + '\n\n';
+      });
     } else {
-      out += '  (nothing marked done on this date)\n';
+      out += 'Nothing was marked done on this date.\n\n';
     }
-    out += `\nIn progress (${inProgress.length})\n`;
-    inProgress.forEach(t=>{ out += `  - ${t.title}\n`; });
-    if(!inProgress.length) out += '  (none)\n';
-    out += `\nBlocked (${blocked.length})\n`;
-    blocked.forEach(t=>{ out += `  - ${t.title} — waiting on ${blockers(t).map(b=>b.title).join(', ')}\n`; });
-    if(!blocked.length) out += '  (none)\n';
-    return out;
+
+    out += `In progress (${inProgress.length})\n`;
+    if(inProgress.length){
+      inProgress.forEach(t=>{
+        let s = `${t.title} is in progress. `;
+        if(t.notes) s += asSentence(t.notes) + ' ';
+        const pr = priorityOf(t);
+        if(pr==='urgent'||pr==='high') s += `This is flagged ${priorityMeta(t).label}.`;
+        out += s.trim() + '\n\n';
+      });
+    } else {
+      out += 'Nothing is in progress.\n\n';
+    }
+
+    out += `Blocked (${blocked.length})\n`;
+    if(blocked.length){
+      blocked.forEach(t=>{
+        const taskBlockers = blockers(t);
+        let s;
+        if(taskBlockers.length){
+          s = `${t.title} is blocked, waiting on ${taskBlockers.map(b=>b.title).join(', ')}`;
+          s += hasExternalBlock(t) ? `, and ${externalTail(t)}.` : '.';
+        } else if(hasExternalBlock(t)){
+          s = `${t.title} is blocked, ${externalTail(t)}.`;
+        } else {
+          s = `${t.title} is blocked.`;
+        }
+        out += s + '\n\n';
+      });
+    } else {
+      out += 'Nothing is blocked.\n\n';
+    }
+    return out.trimEnd() + '\n';
   }
 
   function renderReport(){
@@ -243,14 +374,8 @@
     });
   });
   document.getElementById('tt-download-report').addEventListener('click', ()=>{
-    const text = document.getElementById('tt-report-box').textContent;
-    const dateStr = document.getElementById('tt-report-date').value;
-    const blob = new Blob([text], {type:'text/plain'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `daily-report-${dateStr}.txt`;
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    const dateStr = document.getElementById('tt-report-date').value || todayStr();
+    window.location.href = `/api/report/${dateStr}`;
   });
 
   function openModal(editId){
@@ -261,16 +386,51 @@
       const checked = editing && (editing.dependsOn||[]).includes(t.id) ? 'checked' : '';
       return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0;"><input type="checkbox" value="${t.id}" ${checked}/> ${escapeHtml(t.title)}</label>`;
     }).join('') || '<p style="font-size:12.5px;color:var(--ink-soft);">No other tasks yet to depend on.</p>';
+
+    let extSection = '';
+    if(editing){
+      const dep = editing.externalDependency;
+      if(dep && !dep.resolvedAt){
+        const pName = personById(dep.personId)?.name || 'a colleague';
+        extSection = `
+          <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
+            <label style="font-size:12px;color:var(--ink-soft);">Colleague dependency</label>
+            <p style="font-size:12.5px;margin:6px 0 4px;">⏳ Waiting on <strong>${escapeHtml(pName)}</strong>${dep.notifiedAt?'':' <span style="color:var(--coral);">(email not sent)</span>'}</p>
+            ${dep.note? `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">"${escapeHtml(dep.note)}"</p>`:''}
+            <button class="tt-btn" id="tt-resolve-dep" style="font-size:12px;">Mark resolved</button>
+          </div>`;
+      } else {
+        const personOpts = people.length
+          ? people.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')
+          : '<option value="">No colleagues yet</option>';
+        extSection = `
+          <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
+            <label style="font-size:12px;color:var(--ink-soft);">Flag dependency on a colleague</label>
+            <select class="tt-select" id="tt-dep-person" style="margin:4px 0 8px;font-size:13px;" ${people.length?'':'disabled'}>${personOpts}</select>
+            <textarea class="tt-textarea" id="tt-dep-note" style="margin:0 0 8px;min-height:44px;" placeholder="What are you waiting on them for?"></textarea>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <button class="tt-btn" id="tt-flag-dep" style="font-size:12px;" ${people.length?'':'disabled'}>Flag &amp; notify</button>
+              <span id="tt-dep-status" style="font-size:12px;color:var(--ink-soft);"></span>
+            </div>
+            ${people.length?'':'<p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;">Add colleagues first via “Colleagues”.</p>'}
+          </div>`;
+      }
+    }
     layer.innerHTML = `
     <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
       <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:360px;max-width:90vw;border:0.5px solid var(--line);">
         <h3 style="font-size:16px;margin-bottom:12px;">${editing ? 'Edit task' : 'New task'}</h3>
         <label style="font-size:12px;color:var(--ink-soft);">Title</label>
         <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
+        <label style="font-size:12px;color:var(--ink-soft);">Priority</label>
+        <select class="tt-select" id="tt-new-priority" style="margin:4px 0 10px;">
+          ${PRIORITIES.map(p=>`<option value="${p.key}" ${(editing?priorityOf(editing):'medium')===p.key?'selected':''}>${p.label}</option>`).join('')}
+        </select>
         <label style="font-size:12px;color:var(--ink-soft);">Notes (optional)</label>
         <textarea class="tt-textarea" id="tt-new-notes" style="margin:4px 0 10px;min-height:56px;" placeholder="Any context for this task">${editing ? escapeHtml(editing.notes||'') : ''}</textarea>
         <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
         <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 14px;">${depOptions}</div>
+        ${extSection}
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="tt-btn" id="tt-cancel">Cancel</button>
           <button class="tt-btn tt-btn-primary" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
@@ -278,25 +438,130 @@
       </div>
     </div>`;
     document.getElementById('tt-cancel').onclick = ()=>{ layer.innerHTML=''; };
+    if(editing){
+      const flagBtn = document.getElementById('tt-flag-dep');
+      if(flagBtn) flagBtn.onclick = async ()=>{
+        const personId = document.getElementById('tt-dep-person').value;
+        if(!personId) return;
+        const note = document.getElementById('tt-dep-note').value.trim();
+        const statusEl = document.getElementById('tt-dep-status');
+        statusEl.style.color='var(--ink-soft)';
+        statusEl.textContent='Sending…';
+        flagBtn.disabled = true;
+        const result = await flagDependency(editing.id, personId, note, statusEl);
+        if(result.ok && result.emailed){ openModal(editing.id); }
+        else { flagBtn.disabled = false; }
+      };
+      const resolveBtn = document.getElementById('tt-resolve-dep');
+      if(resolveBtn) resolveBtn.onclick = async ()=>{
+        await resolveDependency(editing.id);
+        openModal(editing.id);
+      };
+    }
     document.getElementById('tt-save').onclick = ()=>{
       const title = document.getElementById('tt-new-title').value.trim();
       if(!title) return;
       const notes = document.getElementById('tt-new-notes').value.trim();
+      const priority = document.getElementById('tt-new-priority').value;
       const deps = Array.from(layer.querySelectorAll('#tt-dep-list input:checked')).map(i=>i.value);
       if(editing){
         editing.title = title;
         editing.notes = notes;
+        editing.priority = priority;
         editing.dependsOn = deps;
       } else {
-        tasks.push({id:uid(), title, notes, status:'todo', dependsOn:deps, createdAt:new Date().toISOString(), completedAt:null});
+        tasks.push({id:uid(), title, notes, priority, status:'todo', dependsOn:deps, createdAt:new Date().toISOString(), completedAt:null, externalDependency:null});
       }
       saveTasks(); render();
       layer.innerHTML='';
     };
   }
-  document.getElementById('tt-add-btn').addEventListener('click', openModal);
+  document.getElementById('tt-add-btn').addEventListener('click', ()=>openModal());
 
-  loadTasks();
+  function openDependencyModal(taskId){
+    const task = tasks.find(t=>t.id===taskId);
+    if(!task || !task.externalDependency) return;
+    const dep = task.externalDependency;
+    const layer = document.getElementById('tt-modal-layer');
+    const pName = personById(dep.personId)?.name || 'a colleague';
+    layer.innerHTML = `
+    <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
+      <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:340px;max-width:90vw;border:0.5px solid var(--line);">
+        <h3 style="font-size:16px;margin-bottom:10px;">Colleague dependency</h3>
+        <p style="font-size:13px;margin:0 0 6px;">⏳ Waiting on <strong>${escapeHtml(pName)}</strong></p>
+        ${dep.note? `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 6px;">"${escapeHtml(dep.note)}"</p>`:''}
+        <p style="font-size:11.5px;font-family:var(--font-mono);color:var(--ink-soft);margin:0 0 4px;">Flagged ${fmtShort(dep.flaggedAt)}</p>
+        <p style="font-size:11.5px;font-family:var(--font-mono);color:${dep.notifiedAt?'var(--teal)':'var(--coral)'};margin:0 0 14px;">${dep.notifiedAt? 'Email sent ' + fmtShort(dep.notifiedAt) : 'Email not sent'}</p>
+        <div style="display:flex;justify-content:flex-end;gap:8px;">
+          <button class="tt-btn" id="tt-dep-close">Close</button>
+          <button class="tt-btn tt-btn-primary" id="tt-dep-resolve">Mark resolved</button>
+        </div>
+      </div>
+    </div>`;
+    document.getElementById('tt-dep-close').onclick = ()=>{ layer.innerHTML=''; };
+    document.getElementById('tt-dep-resolve').onclick = async ()=>{
+      await resolveDependency(taskId);
+      layer.innerHTML='';
+    };
+  }
+
+  function openPeopleModal(){
+    const layer = document.getElementById('tt-modal-layer');
+    function draw(){
+      const rows = people.length
+        ? people.map(p=>`<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 0;border-bottom:0.5px solid var(--line);">
+            <span style="font-size:13px;">${escapeHtml(p.name)} <span style="color:var(--ink-soft);">· ${escapeHtml(p.email)}</span></span>
+            <button class="tt-btn" data-del="${p.id}" style="font-size:11px;padding:3px 8px;color:var(--coral);">Remove</button>
+          </div>`).join('')
+        : '<p style="font-size:12.5px;color:var(--ink-soft);margin:8px 0;">No colleagues yet. Add one below.</p>';
+      layer.innerHTML = `
+      <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
+        <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:400px;max-width:90vw;border:0.5px solid var(--line);">
+          <h3 style="font-size:16px;margin-bottom:12px;">Colleagues</h3>
+          <div style="max-height:220px;overflow-y:auto;margin-bottom:14px;">${rows}</div>
+          <label style="font-size:12px;color:var(--ink-soft);">Add a colleague</label>
+          <input class="tt-input" id="tt-person-name" style="margin:4px 0 8px;" placeholder="Name"/>
+          <input class="tt-input" id="tt-person-email" style="margin:0 0 8px;" placeholder="email@company.com"/>
+          <span id="tt-person-status" style="font-size:12px;color:var(--coral);"></span>
+          <div style="display:flex;justify-content:space-between;gap:8px;margin-top:12px;">
+            <button class="tt-btn tt-btn-primary" id="tt-person-add">Add</button>
+            <button class="tt-btn" id="tt-person-close">Done</button>
+          </div>
+        </div>
+      </div>`;
+      document.getElementById('tt-person-close').onclick = ()=>{ layer.innerHTML=''; render(); };
+      document.getElementById('tt-person-add').onclick = async ()=>{
+        const name = document.getElementById('tt-person-name').value.trim();
+        const email = document.getElementById('tt-person-email').value.trim();
+        const statusEl = document.getElementById('tt-person-status');
+        if(!name || !email){ statusEl.textContent='Name and email are both required.'; return; }
+        try{
+          const res = await fetch('/api/people', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name, email })
+          });
+          if(!res.ok){ const d=await res.json(); statusEl.textContent=d.error||'Could not add colleague.'; return; }
+          await loadPeople();
+          draw();
+        }catch(e){ statusEl.textContent='Network error.'; }
+      };
+      layer.querySelectorAll('[data-del]').forEach(btn=>{
+        btn.onclick = async ()=>{
+          await fetch(`/api/people/${btn.getAttribute('data-del')}`, { method:'DELETE' });
+          await loadPeople();
+          draw();
+        };
+      });
+    }
+    draw();
+  }
+  document.getElementById('tt-people-btn').addEventListener('click', openPeopleModal);
+
+  async function init(){
+    await loadPeople();
+    await loadTasks();
+  }
+  init();
 })();
 </script>
 </body>
