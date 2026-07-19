@@ -4,70 +4,184 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Task tracker</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600&family=Inter:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.3.0/dist/fonts/geist.min.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0&display=swap">
 <style>
-  body{margin:0;}
   :root{
-    --ink:#22282f; --ink-soft:#5c6570; --paper:#f6f5f1; --card:#ffffff;
-    --line:#e2e0d8; --line-strong:#c9c6ba;
-    --teal:#0f6e56; --teal-bg:#e1f5ee; --teal-line:#5dcaa5;
-    --amber:#854f0b; --amber-bg:#faeeda; --amber-line:#ef9f27;
-    --coral:#993c1d; --coral-bg:#faece7; --coral-line:#f0997b;
-    --slate:#444441; --slate-bg:#f1efe8;
-    --font-display:'Fraunces', serif; --font-body:'Inter', sans-serif; --font-mono:'JetBrains Mono', monospace;
+    --ink:#1c1b1b; --ink-soft:#46474a; --paper:#fdf8f8; --card:#ffffff;
+    --line:#e5e3d8; --line-strong:#c7c6ca;
+    --teal:#1a7f37; --teal-bg:#e6f2ea; --teal-line:#1a7f37;
+    --amber:#8a5a00; --amber-bg:#f7f3f2; --amber-line:#f59e0b;
+    --coral:#ba1a1a; --coral-bg:#ffdad6; --coral-line:#ba1a1a;
+    --slate:#46474a; --slate-bg:#f1edec;
+    --sc:#f1edec; --sc-high:#ebe7e7; --sc-low:#f7f3f2;
+    --primary:#000000;
+    --sidebar-w:240px; --topbar-h:60px;
+    --font-display:'Source Serif 4', Georgia, serif;
+    --font-body:'Geist','Inter',system-ui,sans-serif;
+    --font-mono:'JetBrains Mono', ui-monospace, monospace;
   }
   @media (prefers-color-scheme: dark){
     :root{
-      --ink:#ece9e2; --ink-soft:#a7a396; --paper:#1c1c1a; --card:#242422;
+      --ink:#ece9e2; --ink-soft:#a7a396; --paper:#1a1a19; --card:#242422;
       --line:#3a3935; --line-strong:#4c4b45;
-      --teal-bg:#0b2b23; --amber-bg:#2c2007; --coral-bg:#301709; --slate-bg:#2c2c2a;
+      --sc:#242422; --sc-high:#2f2e2b; --sc-low:#201f1d;
+      --teal:#5dcaa5; --teal-bg:#12281c; --amber-bg:#26231c; --coral:#f2b8b5; --coral-bg:#3a1512; --slate-bg:#242422;
+      --primary:#ece9e2;
     }
   }
   *{box-sizing:border-box;}
-  #tt-root{font-family:var(--font-body);color:var(--ink);background:var(--paper);padding:1.5rem;border-radius:14px;max-width:1100px;margin:0 auto;}
-  #tt-root h1,#tt-root h2,#tt-root h3{font-family:var(--font-display);font-weight:600;margin:0;}
-  #tt-root button{font-family:var(--font-body);cursor:pointer;}
-  #tt-root input,#tt-root textarea,#tt-root select{font-family:var(--font-body);}
-  .tt-btn{background:transparent;border:0.5px solid var(--line-strong);border-radius:8px;padding:7px 13px;font-size:13px;color:var(--ink);transition:transform 0.1s ease, background 0.12s ease;}
-  .tt-btn:hover{background:var(--slate-bg);}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--font-body);}
+  h1,h2,h3{font-family:var(--font-display);font-weight:600;margin:0;}
+  button{font-family:inherit;cursor:pointer;}
+  input,textarea,select{font-family:inherit;}
+
+  /* Top app bar */
+  .app-topbar{position:fixed;top:0;left:0;right:0;height:var(--topbar-h);z-index:50;display:flex;align-items:center;justify-content:space-between;padding:0 28px;background:var(--paper);border-bottom:1px solid var(--line-strong);}
+  .app-topbar__left{display:flex;align-items:center;gap:32px;}
+  .app-brand{font-family:var(--font-display);font-size:24px;font-weight:600;color:var(--ink);letter-spacing:-.01em;}
+  .app-nav{display:flex;gap:22px;}
+  .app-nav a{font-family:var(--font-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);text-decoration:none;padding-bottom:2px;}
+  .app-nav a.active{color:var(--ink);border-bottom:2px solid var(--ink);}
+  .app-topbar__right{display:flex;align-items:center;gap:10px;}
+  @media (max-width:860px){ .app-nav{display:none;} }
+
+  /* Sidebar */
+  .app-sidebar{position:fixed;top:var(--topbar-h);left:0;bottom:0;width:var(--sidebar-w);background:var(--sc-low);border-right:1px solid var(--line-strong);display:flex;flex-direction:column;padding:22px 0;overflow-y:auto;}
+  .app-sidebar__session{padding:0 22px 22px;}
+  .app-sidebar__session p{font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px;}
+  .app-sidebar__session h2{font-size:20px;}
+  .side-link{display:flex;align-items:center;gap:14px;padding:11px 22px;color:var(--ink-soft);text-decoration:none;font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;transition:background .12s;}
+  .side-link:hover{background:var(--sc-high);}
+  .side-link.active{color:var(--ink);font-weight:600;border-left:3px solid var(--ink);background:var(--sc-high);}
+  .app-sidebar__spacer{flex:1;}
+  .app-sidebar__foot{padding:0 12px;display:flex;flex-direction:column;}
+  .app-sidebar__foot .tt-btn{margin:0 10px 12px;justify-content:center;}
+  @media (max-width:860px){ .app-sidebar{display:none;} }
+
+  /* Main */
+  .app-main{margin-left:var(--sidebar-w);margin-top:var(--topbar-h);padding:26px 28px 44px;}
+  @media (max-width:860px){ .app-main{margin-left:0;} }
+  .app-main__head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;gap:12px;flex-wrap:wrap;}
+  .app-main__head h1{font-size:34px;letter-spacing:-.02em;}
+
+  /* Board */
+  #tt-board{display:flex;gap:22px;align-items:flex-start;}
+  @media (max-width:900px){ #tt-board{flex-direction:column;} }
+  .tt-col{flex:1;min-width:0;display:flex;flex-direction:column;width:100%;}
+  .tt-col__head{display:flex;justify-content:space-between;align-items:center;padding:2px 2px 10px;margin-bottom:14px;border-bottom:1px solid var(--line-strong);}
+  .tt-col__title{font-family:var(--font-mono);font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);}
+  .tt-count{font-family:var(--font-mono);font-size:11px;color:var(--ink-soft);background:var(--sc-high);padding:2px 8px;border-radius:4px;}
+  .tt-col__body{display:flex;flex-direction:column;gap:14px;max-height:calc(100vh - 240px);overflow-y:auto;padding-right:4px;}
+  .tt-empty{font-size:13px;color:var(--ink-soft);margin:4px 2px;}
+
+  /* Card */
+  .tt-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line-strong);border-radius:12px;padding:15px;transition:transform .15s ease, border-color .15s ease;}
+  .tt-card:hover{transform:translateY(-2px);}
+  .tt-card--done{background:var(--sc-low);opacity:.72;}
+  .tt-card--done:hover{opacity:1;}
+  .tt-card__top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
+  .tt-card__id{font-family:var(--font-mono);font-size:11px;letter-spacing:.05em;color:var(--ink-soft);}
+  .tt-card__more{background:none;border:0;padding:0;color:var(--line-strong);display:inline-flex;}
+  .tt-card__more:hover{color:var(--ink);}
+  .tt-card__title{font-size:15px;font-weight:600;line-height:1.35;margin:0 0 8px;}
+  .tt-card--done .tt-card__title{text-decoration:line-through;color:var(--ink-soft);}
+  .tt-card__notes{font-size:13px;color:var(--ink-soft);line-height:1.45;margin:0 0 10px;}
+  .tt-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;}
+  .tt-tag{font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;padding:3px 7px;border-radius:4px;background:var(--sc);color:var(--ink-soft);border:1px solid var(--line-strong);}
+  .tt-callout{border-left:2px solid var(--coral);background:var(--coral-bg);padding:8px 10px;border-radius:0 6px 6px 0;margin-bottom:10px;}
+  .tt-callout__label{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--coral);margin-bottom:3px;}
+  .tt-callout__body{font-size:12.5px;color:var(--coral);line-height:1.4;}
+  .tt-card__meta{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);border-top:1px solid var(--line);padding-top:10px;margin-top:2px;}
+  .tt-card__controls{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;}
+
+  /* Buttons / inputs / chips */
+  .tt-btn{background:var(--card);border:1px solid var(--line-strong);border-radius:6px;padding:7px 12px;font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--ink);transition:transform .1s ease, background .12s ease, border-color .12s ease;}
+  .tt-btn:hover{background:var(--sc-high);border-color:var(--ink-soft);}
   .tt-btn:active{transform:scale(0.97);}
-  .tt-btn-primary{background:var(--ink);color:var(--paper);border:0.5px solid var(--ink);}
-  .tt-btn-primary:hover{opacity:.88;background:var(--ink);}
-  .tt-input,.tt-textarea,.tt-select{width:100%;border:0.5px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--ink);}
-  .tt-input:focus,.tt-textarea:focus,.tt-select:focus{outline:2px solid var(--teal-line);outline-offset:1px;}
-  .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:20px;font-family:var(--font-mono);}
+  .tt-btn-primary{background:var(--primary);color:var(--paper);border-color:var(--primary);}
+  .tt-btn-primary:hover{opacity:.85;background:var(--primary);}
+  .tt-input,.tt-textarea,.tt-select{width:100%;border:1px solid var(--line-strong);border-radius:6px;padding:9px 10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font-body);}
+  .tt-input:focus,.tt-textarea:focus,.tt-select:focus{outline:2px solid var(--ink);outline-offset:1px;}
+  .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:3px 7px;border-radius:4px;font-family:var(--font-mono);}
   @keyframes ttpulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
   .tt-pulse{animation:ttpulse 1.2s ease-in-out infinite;}
+
+  /* Report */
+  .tt-report{border-top:1px solid var(--line-strong);margin-top:40px;padding-top:28px;}
+  .tt-report__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+  .tt-report__head h2{font-size:20px;}
+  .tt-report__actions{display:flex;gap:8px;align-items:center;}
+
+  .material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;line-height:1;vertical-align:middle;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;}
+  ::-webkit-scrollbar{width:8px;height:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:10px;}
+  ::-webkit-scrollbar-track{background:transparent;}
 </style>
 </head>
 <body>
 
 <div id="tt-root">
-  <div style="display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:1.25rem;flex-wrap:wrap;gap:12px;">
-    <div>
-      <p style="font-size:11px;letter-spacing:.06em;color:var(--ink-soft);text-transform:uppercase;margin:0 0 4px;font-family:var(--font-mono);">Manager check-in ledger</p>
-      <h1 style="font-size:26px;">Task board</h1>
+  <!-- Top app bar -->
+  <header class="app-topbar">
+    <div class="app-topbar__left">
+      <span class="app-brand">Ledger</span>
+      <nav class="app-nav">
+        <a href="#" class="active">Board</a>
+        <a href="#report">Reports</a>
+        <a href="#">Archive</a>
+      </nav>
     </div>
-    <div style="display:flex;gap:8px;align-items:center;">
+    <div class="app-topbar__right">
       <button class="tt-btn" id="tt-people-btn">Colleagues</button>
-      <button class="tt-btn tt-btn-primary" id="tt-add-btn">+ New task</button>
+      <button class="tt-btn tt-btn-primary" id="tt-add-btn">New task</button>
     </div>
-  </div>
+  </header>
 
-  <div id="tt-board" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:1.75rem;"></div>
+  <!-- Sidebar -->
+  <aside class="app-sidebar">
+    <div class="app-sidebar__session">
+      <p>Active Session</p>
+      <h2>Task Ledger</h2>
+    </div>
+    <nav>
+      <a href="#" class="side-link active"><span class="material-symbols-outlined">grid_view</span>Dashboard</a>
+      <a href="#" class="side-link"><span class="material-symbols-outlined">group</span>Team</a>
+      <a href="#" class="side-link"><span class="material-symbols-outlined">calendar_today</span>Schedule</a>
+      <a href="#" class="side-link"><span class="material-symbols-outlined">settings</span>Settings</a>
+    </nav>
+    <div class="app-sidebar__spacer"></div>
+    <div class="app-sidebar__foot">
+      <a href="#report" class="tt-btn">Generate Report</a>
+      <a href="#" class="side-link"><span class="material-symbols-outlined">help</span>Help</a>
+      <a href="#" class="side-link"><span class="material-symbols-outlined">logout</span>Logout</a>
+    </div>
+  </aside>
 
-  <div style="border-top:0.5px solid var(--line);padding-top:2rem;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:8px;">
-      <h2 style="font-size:17px;">Daily report</h2>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <select id="tt-report-date" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;"></select>
-        <button class="tt-btn" id="tt-copy-report">Copy</button>
-        <button class="tt-btn" id="tt-download-report">Download .docx</button>
+  <!-- Main content -->
+  <main class="app-main">
+    <div class="app-main__head">
+      <h1>Manager Check-in Ledger</h1>
+    </div>
+
+    <div id="tt-board"></div>
+
+    <section class="tt-report" id="report">
+      <div class="tt-report__head">
+        <h2>Daily report</h2>
+        <div class="tt-report__actions">
+          <select id="tt-report-date" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;"></select>
+          <button class="tt-btn" id="tt-copy-report">Copy</button>
+          <button class="tt-btn" id="tt-download-report">Download .docx</button>
+        </div>
       </div>
-    </div>
-    <pre id="tt-report-box" style="background:var(--card);border:0.5px solid var(--line);border-radius:10px;padding:14px 16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
-    <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
-  </div>
+      <pre id="tt-report-box" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
+      <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
+    </section>
+  </main>
 </div>
 
 <div id="tt-modal-layer"></div>
@@ -286,29 +400,40 @@
     const blockList = blockers(task);
     const prio = priorityMeta(task);
     const isDone = task.status === 'done';
-    const cardBg = isDone ? 'var(--slate-bg)' : 'var(--card)';
     const card = document.createElement('div');
-    card.style.cssText = `background:${cardBg};border:0.5px solid var(--line);border-left:3px solid ${PRIORITY_BORDER_COLORS[task.priority||'medium']};border-radius:10px;padding:10px 12px;margin-bottom:8px;`;
-    let html = `<div style="display:flex;align-items:center;gap:6px;margin:0 0 8px;">`
-      + `<span class="tt-chip" style="background:transparent;border:0.5px solid ${prio.color};color:${prio.color};">`
-      + `<span style="width:7px;height:7px;border-radius:50%;background:${prio.color};display:inline-block;"></span>${prio.label}</span></div>`;
-    html += `<p style="font-size:14px;font-weight:500;margin:0 0 4px;">${escapeHtml(task.title)}</p>`;
-    if(task.notes) html += `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">${escapeHtml(task.notes)}</p>`;
+    card.className = 'tt-card' + (isDone ? ' tt-card--done' : '');
+    card.style.borderLeftColor = PRIORITY_BORDER_COLORS[task.priority||'medium'];
+
+    const shortId = 'TL-' + task.id.slice(-4).toUpperCase();
+    let html = `<div class="tt-card__top">`
+      + `<span class="tt-card__id">${shortId}</span>`
+      + (isDone
+          ? `<span class="material-symbols-outlined" style="color:var(--teal);font-size:18px;">check_circle</span>`
+          : `<button class="tt-card__more" data-edit="1" title="Edit"><span class="material-symbols-outlined" style="font-size:18px;">more_horiz</span></button>`)
+      + `</div>`;
+    html += `<p class="tt-card__title">${escapeHtml(task.title)}</p>`;
+    if(task.notes) html += `<p class="tt-card__notes">${escapeHtml(task.notes)}</p>`;
+    html += `<div class="tt-tags">`
+      + `<span class="tt-tag" style="border-color:${prio.color};color:${prio.color};background:transparent;">${prio.label}</span>`
+      + (!blocked && (task.dependsOn||[]).length ? `<span class="tt-tag" style="border-color:var(--teal);color:var(--teal);background:transparent;">Deps clear</span>` : '')
+      + `</div>`;
     if(blocked){
-      html += `<div class="tt-chip" style="background:var(--coral-bg);color:var(--coral);margin-bottom:6px;">blocked by ${blockList.map(b=>escapeHtml(b.title)).join(', ')}</div><br/>`;
-    } else if((task.dependsOn||[]).length){
-      html += `<div class="tt-chip" style="background:var(--teal-bg);color:var(--teal);margin-bottom:6px;">dependencies clear</div><br/>`;
+      html += `<div class="tt-callout"><div class="tt-callout__label">Blocked by</div><div class="tt-callout__body">${blockList.map(b=>escapeHtml(b.title)).join(', ')}</div></div>`;
     }
-    if(task.status==='done' && task.completedAt){
-      html += `<p style="font-size:11px;font-family:var(--font-mono);color:var(--ink-soft);margin:0 0 8px;">done ${fmtTime(task.completedAt)} · ${todayStr(new Date(task.completedAt))===todayStr()?'today':fmtDate(todayStr(new Date(task.completedAt)))}</p>`;
+    if(isDone && task.completedAt){
+      const when = todayStr(new Date(task.completedAt))===todayStr() ? 'today' : fmtDate(todayStr(new Date(task.completedAt)));
+      html += `<div class="tt-card__meta"><span class="material-symbols-outlined" style="font-size:15px;">schedule</span>Done ${fmtTime(task.completedAt)} · ${when}</div>`;
     }
     card.innerHTML = html;
+
+    const moreBtn = card.querySelector('[data-edit]');
+    if(moreBtn) moreBtn.onclick = ()=>openModal(task.id);
 
     if(hasExternalBlock(task)){
       const person = personById(task.externalDependency.personId);
       const chip = document.createElement('button');
       chip.className = 'tt-chip';
-      chip.style.cssText = 'background:#efe7fb;color:#6b3fc0;border:0.5px solid #b79ce8;margin-bottom:8px;cursor:pointer;';
+      chip.style.cssText = 'background:#efe7fb;color:#6b3fc0;border:1px solid #b79ce8;margin-bottom:10px;cursor:pointer;';
       chip.textContent = `⏳ waiting on ${person ? person.name : 'a colleague'}`;
       chip.onclick = ()=>openDependencyModal(task.id);
       card.appendChild(chip);
@@ -335,7 +460,7 @@
     }
 
     const controls = document.createElement('div');
-    controls.style.cssText = 'display:flex;gap:6px;margin-top:4px;flex-wrap:wrap;';
+    controls.className = 'tt-card__controls';
     COLS.forEach(c=>{
       if(c.key===task.status) return;
       const b = document.createElement('button');
@@ -382,25 +507,31 @@
     board.innerHTML = '';
     COLS.forEach(col=>{
       const colEl = document.createElement('div');
-      colEl.style.cssText = `background:${col.bg==='var(--card)'?'var(--slate-bg)':col.bg};border-radius:12px;padding:10px;min-height:80px;max-height:70vh;overflow-y:auto;`;
+      colEl.className = 'tt-col';
       const items = tasks.filter(t=>t.status===col.key).sort((a,b)=>{
         const pa=PRIORITY_ORDER[priorityOf(a)], pb=PRIORITY_ORDER[priorityOf(b)];
         if(pa!==pb) return pa-pb;
         return (a.createdAt||'').localeCompare(b.createdAt||'');
       });
-      colEl.innerHTML = `<p style="font-size:12px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:var(--ink-soft);margin:0 0 8px;font-family:var(--font-mono);">${col.label} · ${items.length}</p>`;
+      const head = document.createElement('div');
+      head.className = 'tt-col__head';
+      head.innerHTML = `<span class="tt-col__title">${col.label}</span><span class="tt-count">${String(items.length).padStart(2,'0')}</span>`;
+      colEl.appendChild(head);
+      const body = document.createElement('div');
+      body.className = 'tt-col__body';
       if(!items.length){
         const empty = document.createElement('p');
-        empty.style.cssText='font-size:12.5px;color:var(--ink-soft);margin:0;';
+        empty.className = 'tt-empty';
         const EMPTY_TEXT = {
           todo: "Nothing queued. Add what's next.",
           inprogress: 'Nothing active right now.',
           done: "Nothing finished yet — it'll show up here."
         };
         empty.textContent = EMPTY_TEXT[col.key] || 'Nothing here yet.';
-        colEl.appendChild(empty);
+        body.appendChild(empty);
       }
-      items.forEach(t=>colEl.appendChild(taskCard(t)));
+      items.forEach(t=>body.appendChild(taskCard(t)));
+      colEl.appendChild(body);
       board.appendChild(colEl);
     });
     renderReportControls();
