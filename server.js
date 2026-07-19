@@ -190,6 +190,77 @@ app.post('/api/tasks/:id/resolve-dependency', (req, res) => {
   res.json({ task });
 });
 
+// --- Dependency chain ---
+
+const CHAIN_STATUSES = ['done', 'current', 'blocked', 'pending'];
+
+function normalizeStage(s) {
+  s = s || {};
+  return {
+    label: s.label ? String(s.label) : 'Stage',
+    personId: s.personId || null,
+    status: CHAIN_STATUSES.includes(s.status) ? s.status : 'pending',
+    startedAt: s.startedAt || null,
+    completedAt: s.completedAt || null,
+    note: s.note ? String(s.note) : null
+  };
+}
+
+app.post('/api/tasks/:id/chain', (req, res) => {
+  const { chain } = req.body || {};
+  if (!Array.isArray(chain) || !chain.length) {
+    return res.status(400).json({ error: 'chain must be a non-empty array' });
+  }
+  const tasks = readTasks();
+  const task = tasks.find(t => t.id === req.params.id);
+  if (!task) return res.status(404).json({ error: 'Task not found' });
+  task.chain = chain.map(normalizeStage);
+  writeTasks(tasks);
+  res.json({ task });
+});
+
+app.post('/api/tasks/:id/chain/advance', (req, res) => {
+  const { note } = req.body || {};
+  const tasks = readTasks();
+  const task = tasks.find(t => t.id === req.params.id);
+  if (!task || !Array.isArray(task.chain) || !task.chain.length) {
+    return res.status(404).json({ error: 'Task has no chain' });
+  }
+  const chain = task.chain;
+  const idx = chain.findIndex(s => s.status === 'current' || s.status === 'blocked');
+  if (idx === -1) return res.status(400).json({ error: 'Chain has no active stage' });
+  const now = new Date().toISOString();
+  if (note) {
+    // Flag the active stage as blocked with a note; do not advance.
+    chain[idx].status = 'blocked';
+    chain[idx].note = String(note);
+  } else {
+    chain[idx].status = 'done';
+    chain[idx].completedAt = now;
+    chain[idx].note = null;
+    if (idx + 1 < chain.length) {
+      chain[idx + 1].status = 'current';
+      chain[idx + 1].startedAt = now;
+    }
+  }
+  writeTasks(tasks);
+  res.json({ task });
+});
+
+app.post('/api/tasks/:id/chain/resolve-blocker', (req, res) => {
+  const tasks = readTasks();
+  const task = tasks.find(t => t.id === req.params.id);
+  if (!task || !Array.isArray(task.chain)) {
+    return res.status(404).json({ error: 'Task has no chain' });
+  }
+  const stage = task.chain.find(s => s.status === 'blocked');
+  if (!stage) return res.status(400).json({ error: 'No blocked stage to resolve' });
+  stage.status = 'current';
+  stage.note = null;
+  writeTasks(tasks);
+  res.json({ task });
+});
+
 // --- Daily report (.docx) ---
 
 function localDateStr(iso) {

@@ -28,14 +28,16 @@
   #tt-root h1,#tt-root h2,#tt-root h3{font-family:var(--font-display);font-weight:600;margin:0;}
   #tt-root button{font-family:var(--font-body);cursor:pointer;}
   #tt-root input,#tt-root textarea,#tt-root select{font-family:var(--font-body);}
-  .tt-btn{background:transparent;border:0.5px solid var(--line-strong);border-radius:8px;padding:7px 13px;font-size:13px;color:var(--ink);transition:background .12s;}
+  .tt-btn{background:transparent;border:0.5px solid var(--line-strong);border-radius:8px;padding:7px 13px;font-size:13px;color:var(--ink);transition:transform 0.1s ease, background 0.12s ease;}
   .tt-btn:hover{background:var(--slate-bg);}
-  .tt-btn:active{transform:scale(0.98);}
+  .tt-btn:active{transform:scale(0.97);}
   .tt-btn-primary{background:var(--ink);color:var(--paper);border:0.5px solid var(--ink);}
   .tt-btn-primary:hover{opacity:.88;background:var(--ink);}
   .tt-input,.tt-textarea,.tt-select{width:100%;border:0.5px solid var(--line-strong);border-radius:8px;padding:8px 10px;font-size:14px;background:var(--card);color:var(--ink);}
   .tt-input:focus,.tt-textarea:focus,.tt-select:focus{outline:2px solid var(--teal-line);outline-offset:1px;}
   .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:11px;padding:2px 8px;border-radius:20px;font-family:var(--font-mono);}
+  @keyframes ttpulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
+  .tt-pulse{animation:ttpulse 1.2s ease-in-out infinite;}
 </style>
 </head>
 <body>
@@ -54,7 +56,7 @@
 
   <div id="tt-board" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:1.75rem;"></div>
 
-  <div style="border-top:0.5px solid var(--line);padding-top:1.25rem;">
+  <div style="border-top:0.5px solid var(--line);padding-top:2rem;">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.75rem;flex-wrap:wrap;gap:8px;">
       <h2 style="font-size:17px;">Daily report</h2>
       <div style="display:flex;gap:8px;align-items:center;">
@@ -87,6 +89,9 @@
     {key:'low',    label:'Low',    color:'#4a9d6e'}
   ];
   const PRIORITY_ORDER = {urgent:0, high:1, medium:2, low:3};
+  const PRIORITY_BORDER_COLORS = {
+    urgent: '#d64545', high: '#e08a3c', medium: '#d9b038', low: '#4a9d6e'
+  };
   function priorityOf(task){ return PRIORITIES.some(p=>p.key===task.priority) ? task.priority : 'medium'; }
   function priorityMeta(task){ const k=priorityOf(task); return PRIORITIES.find(p=>p.key===k); }
 
@@ -161,6 +166,111 @@
     }catch(e){ console.error('Resolve failed', e); }
   }
 
+  // --- Dependency chain ---
+  async function chainAction(url, body, taskId){
+    try{
+      const res = await fetch(url, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body||{})
+      });
+      const data = await res.json();
+      if(!res.ok) return { ok:false, error:data.error };
+      const t = tasks.find(x=>x.id===taskId);
+      if(t && data.task) t.chain = data.task.chain;
+      render();
+      return { ok:true };
+    }catch(e){ return { ok:false, error:'Network error' }; }
+  }
+  function setChain(taskId, chain){ return chainAction(`/api/tasks/${taskId}/chain`, { chain }, taskId); }
+  function advanceChain(taskId, note){ return chainAction(`/api/tasks/${taskId}/chain/advance`, note?{note}:{}, taskId); }
+  function resolveBlocker(taskId){ return chainAction(`/api/tasks/${taskId}/chain/resolve-blocker`, {}, taskId); }
+
+  function fmtDuration(ms){
+    if(ms < 0) ms = 0;
+    const min = Math.round(ms/60000);
+    if(min < 1) return 'just now';
+    if(min < 60) return `${min}m`;
+    const hrs = Math.floor(min/60), rem = min%60;
+    if(hrs < 24) return rem ? `${hrs}h ${rem}m` : `${hrs}h`;
+    const days = Math.floor(hrs/24), rh = hrs%24;
+    return rh ? `${days}d ${rh}h` : `${days}d`;
+  }
+  function stageName(stage){ return stage.label || personById(stage.personId)?.name || 'Stage'; }
+
+  function renderStage(task, stage){
+    const col = document.createElement('div');
+    col.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:4px;min-width:64px;max-width:112px;';
+    const node = document.createElement('div');
+    node.style.cssText = 'width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;flex:0 0 auto;';
+    let caption = '';
+    if(stage.status==='done'){
+      node.style.background='var(--teal)'; node.style.color='#fff'; node.textContent='✓';
+      if(stage.startedAt && stage.completedAt) caption = fmtDuration(new Date(stage.completedAt)-new Date(stage.startedAt));
+    } else if(stage.status==='current' || stage.status==='blocked'){
+      node.style.background='#d64545'; node.style.color='#fff';
+      const dot = document.createElement('span');
+      dot.style.cssText='width:9px;height:9px;border-radius:50%;background:#fff;';
+      if(stage.status==='current') dot.className='tt-pulse';
+      node.appendChild(dot);
+      if(stage.startedAt) caption = fmtDuration(Date.now()-new Date(stage.startedAt)) + ' elapsed';
+    } else {
+      node.style.background='transparent'; node.style.border='2px solid var(--line-strong)'; node.style.color='var(--ink-soft)';
+      caption = 'not started';
+    }
+    col.appendChild(node);
+    const name = document.createElement('div');
+    name.style.cssText = `font-size:11px;font-weight:500;text-align:center;color:${stage.status==='pending'?'var(--ink-soft)':'var(--ink)'};`;
+    name.textContent = stageName(stage);
+    col.appendChild(name);
+    if(caption){
+      const cap = document.createElement('div');
+      cap.style.cssText='font-size:10px;font-family:var(--font-mono);color:var(--ink-soft);text-align:center;';
+      cap.textContent = caption;
+      col.appendChild(cap);
+    }
+    if(stage.status==='blocked' && stage.note){
+      const callout = document.createElement('div');
+      callout.style.cssText='font-size:10.5px;background:var(--coral-bg);color:var(--coral);border-radius:6px;padding:4px 6px;margin-top:2px;text-align:center;max-width:112px;';
+      callout.textContent = '"'+stage.note+'"';
+      col.appendChild(callout);
+    }
+    if(stage.status==='current'){
+      const adv = document.createElement('button');
+      adv.className='tt-btn'; adv.style.cssText='font-size:10px;padding:3px 6px;margin-top:2px;';
+      adv.textContent='Pass on ✓';
+      adv.onclick=()=>advanceChain(task.id);
+      col.appendChild(adv);
+      const blk = document.createElement('button');
+      blk.className='tt-btn'; blk.style.cssText='font-size:10px;padding:3px 6px;color:var(--coral);';
+      blk.textContent='Flag blocked';
+      blk.onclick=()=>{ const note=prompt('What is blocking this stage?'); if(note && note.trim()) advanceChain(task.id, note.trim()); };
+      col.appendChild(blk);
+    } else if(stage.status==='blocked'){
+      const rb = document.createElement('button');
+      rb.className='tt-btn'; rb.style.cssText='font-size:10px;padding:3px 6px;margin-top:2px;';
+      rb.textContent='Resolve';
+      rb.onclick=()=>resolveBlocker(task.id);
+      col.appendChild(rb);
+    }
+    return col;
+  }
+
+  function renderChainBar(task){
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'display:flex;align-items:flex-start;overflow-x:auto;padding:6px 2px 2px;';
+    const chain = task.chain || [];
+    chain.forEach((stage, i)=>{
+      if(i>0){
+        const line = document.createElement('div');
+        const solid = chain[i-1].status==='done';
+        line.style.cssText = `flex:1;min-width:20px;height:0;margin-top:14px;border-top:2px ${solid?'solid':'dashed'} ${solid?'var(--teal-line)':'var(--line-strong)'};`;
+        wrap.appendChild(line);
+      }
+      wrap.appendChild(renderStage(task, stage));
+    });
+    return wrap;
+  }
+
   function isBlocked(task){
     return (task.dependsOn||[]).some(id=>{
       const dep = tasks.find(t=>t.id===id);
@@ -175,9 +285,11 @@
     const blocked = isBlocked(task);
     const blockList = blockers(task);
     const prio = priorityMeta(task);
+    const isDone = task.status === 'done';
+    const cardBg = isDone ? 'var(--slate-bg)' : 'var(--card)';
     const card = document.createElement('div');
-    card.style.cssText = `background:var(--card);border:0.5px solid var(--line);border-left:4px solid ${prio.color};border-radius:10px;padding:10px 12px;margin-bottom:8px;`;
-    let html = `<div style="display:flex;align-items:center;gap:6px;margin:0 0 4px;">`
+    card.style.cssText = `background:${cardBg};border:0.5px solid var(--line);border-left:3px solid ${PRIORITY_BORDER_COLORS[task.priority||'medium']};border-radius:10px;padding:10px 12px;margin-bottom:8px;`;
+    let html = `<div style="display:flex;align-items:center;gap:6px;margin:0 0 8px;">`
       + `<span class="tt-chip" style="background:transparent;border:0.5px solid ${prio.color};color:${prio.color};">`
       + `<span style="width:7px;height:7px;border-radius:50%;background:${prio.color};display:inline-block;"></span>${prio.label}</span></div>`;
     html += `<p style="font-size:14px;font-weight:500;margin:0 0 4px;">${escapeHtml(task.title)}</p>`;
@@ -201,6 +313,25 @@
       chip.onclick = ()=>openDependencyModal(task.id);
       card.appendChild(chip);
       card.appendChild(document.createElement('br'));
+    }
+
+    if(Array.isArray(task.chain) && task.chain.length){
+      const doneCount = task.chain.filter(s=>s.status==='done').length;
+      const active = task.chain.find(s=>s.status==='current' || s.status==='blocked');
+      const who = active ? `${stageName(active)} has it${active.status==='blocked'?' — blocked':''}` : 'complete';
+      const summary = document.createElement('button');
+      summary.className='tt-btn';
+      summary.style.cssText='font-size:11px;padding:4px 8px;margin-bottom:6px;display:block;width:100%;text-align:left;';
+      summary.textContent = `⛓ Chain ${doneCount}/${task.chain.length} · ${who}`;
+      const barWrap = document.createElement('div');
+      barWrap.style.cssText='display:none;margin-bottom:6px;';
+      summary.onclick=()=>{
+        const open = barWrap.style.display!=='none';
+        barWrap.style.display = open ? 'none' : 'block';
+        if(!open){ barWrap.innerHTML=''; barWrap.appendChild(renderChainBar(task)); }
+      };
+      card.appendChild(summary);
+      card.appendChild(barWrap);
     }
 
     const controls = document.createElement('div');
@@ -251,7 +382,7 @@
     board.innerHTML = '';
     COLS.forEach(col=>{
       const colEl = document.createElement('div');
-      colEl.style.cssText = `background:${col.bg==='var(--card)'?'var(--slate-bg)':col.bg};border-radius:12px;padding:10px;min-height:80px;`;
+      colEl.style.cssText = `background:${col.bg==='var(--card)'?'var(--slate-bg)':col.bg};border-radius:12px;padding:10px;min-height:80px;max-height:70vh;overflow-y:auto;`;
       const items = tasks.filter(t=>t.status===col.key).sort((a,b)=>{
         const pa=PRIORITY_ORDER[priorityOf(a)], pb=PRIORITY_ORDER[priorityOf(b)];
         if(pa!==pb) return pa-pb;
@@ -261,7 +392,12 @@
       if(!items.length){
         const empty = document.createElement('p');
         empty.style.cssText='font-size:12.5px;color:var(--ink-soft);margin:0;';
-        empty.textContent = col.key==='todo' ? 'Add a task to get started.' : 'Nothing here yet.';
+        const EMPTY_TEXT = {
+          todo: "Nothing queued. Add what's next.",
+          inprogress: 'Nothing active right now.',
+          done: "Nothing finished yet — it'll show up here."
+        };
+        empty.textContent = EMPTY_TEXT[col.key] || 'Nothing here yet.';
         colEl.appendChild(empty);
       }
       items.forEach(t=>colEl.appendChild(taskCard(t)));
@@ -416,9 +552,20 @@
           </div>`;
       }
     }
+
+    let chainBuilderSection = '';
+    if(editing){
+      const hasChain = Array.isArray(editing.chain) && editing.chain.length;
+      chainBuilderSection = `
+        <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
+          <label style="font-size:12px;color:var(--ink-soft);">Dependency chain</label>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 8px;">${hasChain? `A ${editing.chain.length}-stage chain is set — advance it from the card.` : 'Track a multi-person handoff as an ordered chain.'}</p>
+          <button class="tt-btn" id="tt-build-chain" style="font-size:12px;">${hasChain?'Rebuild chain':'Build a dependency chain'}</button>
+        </div>`;
+    }
     layer.innerHTML = `
     <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
-      <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:360px;max-width:90vw;border:0.5px solid var(--line);">
+      <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:360px;max-width:90vw;border:0.5px solid var(--line);max-height:90vh;overflow-y:auto;">
         <h3 style="font-size:16px;margin-bottom:12px;">${editing ? 'Edit task' : 'New task'}</h3>
         <label style="font-size:12px;color:var(--ink-soft);">Title</label>
         <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
@@ -431,6 +578,7 @@
         <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
         <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 14px;">${depOptions}</div>
         ${extSection}
+        ${chainBuilderSection}
         <div style="display:flex;justify-content:flex-end;gap:8px;">
           <button class="tt-btn" id="tt-cancel">Cancel</button>
           <button class="tt-btn tt-btn-primary" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
@@ -457,6 +605,8 @@
         await resolveDependency(editing.id);
         openModal(editing.id);
       };
+      const buildChainBtn = document.getElementById('tt-build-chain');
+      if(buildChainBtn) buildChainBtn.onclick = ()=>openChainBuilder(editing.id);
     }
     document.getElementById('tt-save').onclick = ()=>{
       const title = document.getElementById('tt-new-title').value.trim();
@@ -556,6 +706,69 @@
     draw();
   }
   document.getElementById('tt-people-btn').addEventListener('click', openPeopleModal);
+
+  function openChainBuilder(taskId){
+    const task = tasks.find(t=>t.id===taskId);
+    if(!task) return;
+    const layer = document.getElementById('tt-modal-layer');
+    let staged = (Array.isArray(task.chain) && task.chain.length)
+      ? task.chain.map(s=>({ label:s.label, personId:s.personId }))
+      : [{ label:'You', personId:null }];
+    function draw(){
+      const list = staged.map((s,i)=>`
+        <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--line);">
+          <span style="font-size:12px;font-family:var(--font-mono);color:var(--ink-soft);">${i+1}</span>
+          <span style="font-size:13px;flex:1;">${escapeHtml(s.label)}${s.personId?'':' <span style="color:var(--ink-soft);">(you)</span>'}</span>
+          ${i===0?'':`<button class="tt-btn" data-rm="${i}" style="font-size:11px;padding:2px 7px;color:var(--coral);">×</button>`}
+        </div>`).join('');
+      const opts = people.length
+        ? people.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')
+        : '<option value="">No colleagues yet</option>';
+      layer.innerHTML = `
+      <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
+        <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:400px;max-width:90vw;border:0.5px solid var(--line);">
+          <h3 style="font-size:16px;margin-bottom:6px;">Build dependency chain</h3>
+          <p style="font-size:12px;color:var(--ink-soft);margin:0 0 12px;">Stages run in order. You are the first stage; add colleagues the work passes to.</p>
+          <div style="margin-bottom:12px;">${list}</div>
+          <div style="display:flex;gap:6px;margin-bottom:14px;">
+            <select class="tt-select" id="tt-chain-person" style="flex:1;font-size:13px;" ${people.length?'':'disabled'}>${opts}</select>
+            <button class="tt-btn" id="tt-chain-add" ${people.length?'':'disabled'}>Add</button>
+          </div>
+          <div style="display:flex;justify-content:space-between;gap:8px;">
+            <button class="tt-btn" id="tt-chain-cancel">Cancel</button>
+            <button class="tt-btn tt-btn-primary" id="tt-chain-save" ${staged.length<2?'disabled':''}>Save chain</button>
+          </div>
+          ${staged.length<2?'<p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Add at least one colleague to form a chain.</p>':''}
+          ${people.length?'':'<p style="font-size:11.5px;color:var(--ink-soft);margin:8px 0 0;">Add colleagues first via “Colleagues”.</p>'}
+        </div>
+      </div>`;
+      document.getElementById('tt-chain-cancel').onclick = ()=>openModal(taskId);
+      document.getElementById('tt-chain-add').onclick = ()=>{
+        const pid = document.getElementById('tt-chain-person').value;
+        if(!pid) return;
+        const p = personById(pid);
+        staged.push({ label: p?p.name:'Colleague', personId: pid });
+        draw();
+      };
+      layer.querySelectorAll('[data-rm]').forEach(b=>{
+        b.onclick = ()=>{ staged.splice(Number(b.getAttribute('data-rm')),1); draw(); };
+      });
+      document.getElementById('tt-chain-save').onclick = async ()=>{
+        const now = new Date().toISOString();
+        const chain = staged.map((s,i)=>({
+          label: s.label,
+          personId: s.personId || null,
+          status: i===0 ? 'current' : 'pending',
+          startedAt: i===0 ? now : null,
+          completedAt: null,
+          note: null
+        }));
+        const result = await setChain(taskId, chain);
+        if(result.ok) openModal(taskId);
+      };
+    }
+    draw();
+  }
 
   async function init(){
     await loadPeople();
