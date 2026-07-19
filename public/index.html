@@ -81,7 +81,7 @@
   /* Card */
   .tt-card{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--line-strong);border-radius:12px;padding:15px;transition:transform .15s ease, border-color .15s ease;}
   .tt-card:hover{transform:translateY(-2px);}
-  .tt-card--done{background:var(--sc-low);opacity:.72;}
+  .tt-card--done{background:var(--slate-bg);opacity:.72;border-left-color:var(--line);border-left-width:1px;}
   .tt-card--done:hover{opacity:1;}
   .tt-card__top{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;}
   .tt-card__id{font-family:var(--font-mono);font-size:11px;letter-spacing:.05em;color:var(--ink-soft);}
@@ -104,6 +104,7 @@
   .tt-btn:active{transform:scale(0.97);}
   .tt-btn-primary{background:var(--primary);color:var(--paper);border-color:var(--primary);}
   .tt-btn-primary:hover{opacity:.85;background:var(--primary);}
+  .tt-danger:hover,.tt-danger:focus{color:var(--coral);border-color:var(--coral);}
   .tt-input,.tt-textarea,.tt-select{width:100%;border:1px solid var(--line-strong);border-radius:6px;padding:9px 10px;font-size:14px;background:var(--card);color:var(--ink);font-family:var(--font-body);}
   .tt-input:focus,.tt-textarea:focus,.tt-select:focus{outline:2px solid var(--ink);outline-offset:1px;}
   .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:3px 7px;border-radius:4px;font-family:var(--font-mono);}
@@ -321,7 +322,7 @@
       node.style.background='var(--teal)'; node.style.color='#fff'; node.textContent='✓';
       if(stage.startedAt && stage.completedAt) caption = fmtDuration(new Date(stage.completedAt)-new Date(stage.startedAt));
     } else if(stage.status==='current' || stage.status==='blocked'){
-      node.style.background='#d64545'; node.style.color='#fff';
+      node.style.background='var(--amber-line)'; node.style.color='#fff';
       const dot = document.createElement('span');
       dot.style.cssText='width:9px;height:9px;border-radius:50%;background:#fff;';
       if(stage.status==='current') dot.className='tt-pulse';
@@ -337,14 +338,15 @@
     name.textContent = stageName(stage);
     col.appendChild(name);
     if(caption){
+      const activeStage = (stage.status==='current' || stage.status==='blocked');
       const cap = document.createElement('div');
-      cap.style.cssText='font-size:10px;font-family:var(--font-mono);color:var(--ink-soft);text-align:center;';
+      cap.style.cssText=`font-size:10px;font-family:var(--font-mono);color:${activeStage?'var(--amber)':'var(--ink-soft)'};text-align:center;`;
       cap.textContent = caption;
       col.appendChild(cap);
     }
     if(stage.status==='blocked' && stage.note){
       const callout = document.createElement('div');
-      callout.style.cssText='font-size:10.5px;background:var(--coral-bg);color:var(--coral);border-radius:6px;padding:4px 6px;margin-top:2px;text-align:center;max-width:112px;';
+      callout.style.cssText='font-size:10.5px;background:var(--amber-bg);color:var(--amber);border-left:2px solid var(--amber-line);border-radius:0 6px 6px 0;padding:4px 6px;margin-top:2px;text-align:center;max-width:112px;';
       callout.textContent = '"'+stage.note+'"';
       col.appendChild(callout);
     }
@@ -402,7 +404,7 @@
     const isDone = task.status === 'done';
     const card = document.createElement('div');
     card.className = 'tt-card' + (isDone ? ' tt-card--done' : '');
-    card.style.borderLeftColor = PRIORITY_BORDER_COLORS[task.priority||'medium'];
+    if(!isDone) card.style.borderLeftColor = PRIORITY_BORDER_COLORS[task.priority||'medium'];
 
     const shortId = 'TL-' + task.id.slice(-4).toUpperCase();
     let html = `<div class="tt-card__top">`
@@ -485,8 +487,8 @@
     edit.onclick = ()=>openModal(task.id);
     controls.appendChild(edit);
     const del = document.createElement('button');
-    del.className='tt-btn';
-    del.style.cssText='font-size:11px;padding:4px 8px;color:var(--coral);';
+    del.className='tt-btn tt-danger';
+    del.style.cssText='font-size:11px;padding:4px 8px;';
     del.textContent='Remove';
     del.onclick = ()=>{
       tasks = tasks.filter(t=>t.id!==task.id);
