@@ -72,6 +72,15 @@
   .tt-seg__btn.active{background:var(--primary);color:var(--paper);}
   .tt-seg__btn+.tt-seg__btn{border-left:1px solid var(--line-strong);}
 
+  /* Waiting on you */
+  .tt-waiting{border:1px solid #b79ce8;background:#efe7fb;border-radius:12px;padding:14px 16px;margin-bottom:22px;}
+  .tt-waiting__title{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#6b3fc0;margin:0 0 10px;font-weight:600;}
+  .tt-waiting__item{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:8px 0;border-top:1px solid #d9c9f2;}
+  .tt-waiting__item:first-of-type{border-top:0;}
+  .tt-waiting__task{font-size:14px;font-weight:600;color:var(--ink);}
+  .tt-waiting__note{font-size:12.5px;color:var(--ink-soft);margin-top:2px;}
+  @media (prefers-color-scheme: dark){ .tt-waiting{background:#241633;border-color:#4a3568;} .tt-waiting__title{color:#c4a9f0;} .tt-waiting__item{border-color:#3a2b52;} }
+
   /* Board */
   #tt-board{display:flex;gap:22px;align-items:flex-start;}
   @media (max-width:900px){ #tt-board{flex-direction:column;} }
@@ -176,6 +185,8 @@
       </div>
     </div>
 
+    <div id="tt-waiting"></div>
+
     <div id="tt-board"></div>
 
     <section class="tt-report" id="report">
@@ -244,6 +255,40 @@
   }
   async function apiDeleteTask(id){
     await fetch('/api/tasks/'+id, { method:'DELETE' });
+  }
+  let waitingOnMe = [];
+  async function loadWaitingOnMe(){
+    try{ waitingOnMe = await fetch('/api/waiting-on-me').then(r=>r.json()); }
+    catch(e){ waitingOnMe = []; }
+    renderWaiting();
+  }
+  function renderWaiting(){
+    const el = document.getElementById('tt-waiting');
+    if(!el) return;
+    if(!waitingOnMe.length){ el.innerHTML = ''; return; }
+    el.innerHTML = '';
+    const box = document.createElement('div');
+    box.className = 'tt-waiting';
+    box.innerHTML = `<p class="tt-waiting__title">⏳ Waiting on you (${waitingOnMe.length})</p>`;
+    waitingOnMe.forEach(w=>{
+      const item = document.createElement('div');
+      item.className = 'tt-waiting__item';
+      const left = document.createElement('div');
+      left.innerHTML = `<div class="tt-waiting__task">${escapeHtml(w.taskTitle)}</div>`
+        + (w.note ? `<div class="tt-waiting__note">"${escapeHtml(w.note)}"</div>` : '');
+      const btn = document.createElement('button');
+      btn.className = 'tt-btn';
+      btn.textContent = 'Mark done';
+      btn.onclick = async ()=>{
+        await fetch(`/api/tasks/${w.taskId}/resolve-dependency`, { method:'POST' });
+        await loadWaitingOnMe();
+        await loadTasks();
+      };
+      item.appendChild(left);
+      item.appendChild(btn);
+      box.appendChild(item);
+    });
+    el.appendChild(box);
   }
   function userById(id){ return users.find(u=>u.id===id); }
   function assigneeName(task){
@@ -963,6 +1008,7 @@
     await loadUsers();
     await loadPeople();
     await loadTasks();
+    await loadWaitingOnMe();
   }
   async function doLogout(){
     await fetch('/api/logout', { method:'POST' });
@@ -1031,6 +1077,7 @@
     await loadUsers();
     await loadPeople();
     await loadTasks();
+    await loadWaitingOnMe();
   }
   init();
 })();

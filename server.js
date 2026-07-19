@@ -55,7 +55,15 @@ app.get('/api/users', (req, res) => res.json(dbm.getUsers()));
 app.post('/api/users', (req, res) => {
   const { name, email } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name is required' });
-  res.status(201).json(dbm.addUser({ name, email }));
+  const user = dbm.addUser({ name, email });
+  dbm.syncPersonUserLinks();
+  res.status(201).json(user);
+});
+
+// Dependencies flagged on the signed-in user (they're the colleague being waited on).
+app.get('/api/waiting-on-me', (req, res) => {
+  const user = auth.getCurrentUser(req);
+  res.json(dbm.getWaitingOnUser(user.id));
 });
 
 app.delete('/api/users/:id', (req, res) => {
@@ -137,7 +145,9 @@ app.post('/api/people', (req, res) => {
   if (!name || !email) {
     return res.status(400).json({ error: 'name and email are required' });
   }
-  res.status(201).json(dbm.addPerson({ name, email }));
+  const person = dbm.addPerson({ name, email });
+  dbm.syncPersonUserLinks();
+  res.status(201).json(person);
 });
 
 app.delete('/api/people/:id', (req, res) => {
@@ -476,6 +486,7 @@ app.get('/api/report/:date', (req, res) => {
   sendDoc(res, doc, `daily-report-${dateStr}.docx`);
 });
 
+dbm.syncPersonUserLinks();
 app.listen(PORT, () => {
   console.log(`Task tracker running at http://localhost:${PORT}`);
 });

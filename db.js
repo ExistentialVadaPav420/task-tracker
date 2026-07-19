@@ -276,11 +276,43 @@ function addUser({ name, email }) {
   return getUser(user.id);
 }
 
+// --- Bridge colleagues <-> app users by matching email ---
+
+function syncPersonUserLinks() {
+  const users = db.prepare("SELECT id, email FROM users WHERE email IS NOT NULL AND email != ''").all();
+  const byEmail = new Map(users.map(u => [u.email.toLowerCase(), u.id]));
+  const people = db.prepare('SELECT id, email FROM people').all();
+  const link = db.prepare('UPDATE people SET is_app_user = 1, linked_user_id = ? WHERE id = ?');
+  const unlink = db.prepare('UPDATE people SET is_app_user = 0, linked_user_id = NULL WHERE id = ?');
+  const tx = db.transaction(() => {
+    for (const p of people) {
+      const uid = p.email ? byEmail.get(p.email.toLowerCase()) : null;
+      if (uid) link.run(uid, p.id);
+      else unlink.run(p.id);
+    }
+  });
+  tx();
+}
+
+// Unresolved dependencies flagged on a person linked to this user (their "waiting on you").
+function getWaitingOnUser(userId) {
+  return db.prepare(`
+    SELECT ed.task_id AS taskId, ed.note AS note, ed.flagged_at AS flaggedAt,
+           ed.notified_at AS notifiedAt, t.title AS taskTitle, p.name AS personName
+    FROM external_dependencies ed
+    JOIN people p ON p.id = ed.person_id
+    JOIN tasks  t ON t.id = ed.task_id
+    WHERE p.linked_user_id = ? AND ed.resolved_at IS NULL
+    ORDER BY ed.flagged_at DESC
+  `).all(userId);
+}
+
 module.exports = {
   db, newId,
   getTasks, getTask, replaceAllTasks,
   createTask, updateTask, deleteTask, setChain,
   setExternalDependency, markNotified, resolveExternalDependency,
   getPeople, getPerson, addPerson, deletePerson, linkPersonToUser,
-  getUsers, getUser, addUser
+  getUsers, getUser, addUser,
+  syncPersonUserLinks, getWaitingOnUser
 };
