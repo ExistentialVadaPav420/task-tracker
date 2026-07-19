@@ -83,11 +83,46 @@ app.get('/api/tasks', (req, res) => {
   res.json(dbm.getTasks());
 });
 
-app.put('/api/tasks', (req, res) => {
-  if (!Array.isArray(req.body)) {
-    return res.status(400).json({ error: 'Expected an array of tasks' });
+// Granular writes (replaces the old bulk PUT, which lost concurrent edits).
+app.post('/api/tasks', (req, res) => {
+  const user = auth.getCurrentUser(req);
+  const { title, notes, priority, dependsOn, assignedTo } = req.body || {};
+  if (!title || !String(title).trim()) return res.status(400).json({ error: 'title is required' });
+  const task = dbm.createTask({
+    title: String(title).trim(),
+    notes: notes ? String(notes).trim() : '',
+    priority: priority || 'medium',
+    status: 'todo',
+    dependsOn: Array.isArray(dependsOn) ? dependsOn : [],
+    createdBy: user.id,
+    assignedTo: assignedTo || user.id,
+    createdAt: new Date().toISOString(),
+    completedAt: null,
+    chain: null
+  });
+  res.status(201).json({ task });
+});
+
+app.patch('/api/tasks/:id', (req, res) => {
+  const existing = dbm.getTask(req.params.id);
+  if (!existing) return res.status(404).json({ error: 'Task not found' });
+  const b = req.body || {};
+  const fields = {};
+  if (b.title !== undefined) fields.title = String(b.title).trim();
+  if (b.notes !== undefined) fields.notes = b.notes ? String(b.notes).trim() : '';
+  if (b.priority !== undefined) fields.priority = b.priority;
+  if (b.dependsOn !== undefined) fields.dependsOn = Array.isArray(b.dependsOn) ? b.dependsOn : [];
+  if (b.assignedTo !== undefined) fields.assignedTo = b.assignedTo || null;
+  if (b.status !== undefined) {
+    fields.status = b.status;
+    fields.completedAt = b.status === 'done' ? new Date().toISOString() : null;
   }
-  dbm.replaceAllTasks(req.body);
+  const task = dbm.updateTask(req.params.id, fields);
+  res.json({ task });
+});
+
+app.delete('/api/tasks/:id', (req, res) => {
+  dbm.deleteTask(req.params.id);
   res.json({ ok: true });
 });
 

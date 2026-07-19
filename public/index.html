@@ -67,6 +67,10 @@
   @media (max-width:860px){ .app-main{margin-left:0;} }
   .app-main__head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px;gap:12px;flex-wrap:wrap;}
   .app-main__head h1{font-size:34px;letter-spacing:-.02em;}
+  .tt-seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:8px;overflow:hidden;}
+  .tt-seg__btn{background:var(--card);border:0;padding:8px 14px;font-family:var(--font-mono);font-size:11px;letter-spacing:.04em;color:var(--ink-soft);}
+  .tt-seg__btn.active{background:var(--primary);color:var(--paper);}
+  .tt-seg__btn+.tt-seg__btn{border-left:1px solid var(--line-strong);}
 
   /* Board */
   #tt-board{display:flex;gap:22px;align-items:flex-start;}
@@ -166,6 +170,10 @@
   <main class="app-main">
     <div class="app-main__head">
       <h1>Manager Check-in Ledger</h1>
+      <div class="tt-seg">
+        <button class="tt-seg__btn active" id="tt-filter-mine">Assigned to me</button>
+        <button class="tt-seg__btn" id="tt-filter-team">Whole team</button>
+      </div>
     </div>
 
     <div id="tt-board"></div>
@@ -194,6 +202,7 @@
   let people = [];
   let users = [];
   let currentUser = null;
+  let boardFilter = 'mine'; // 'mine' | 'team'
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
@@ -224,14 +233,23 @@
     }catch(e){ tasks = []; }
     render();
   }
-  async function saveTasks(){
-    try{
-      await fetch('/api/tasks', {
-        method:'PUT',
-        headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(tasks)
-      });
-    }catch(e){ console.error('Storage error', e); }
+  // Granular task writes (server assembles/owns the shared task pool).
+  async function apiCreateTask(body){
+    const r = await fetch('/api/tasks', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    return r.ok ? (await r.json()).task : null;
+  }
+  async function apiPatchTask(id, body){
+    const r = await fetch('/api/tasks/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    return r.ok ? (await r.json()).task : null;
+  }
+  async function apiDeleteTask(id){
+    await fetch('/api/tasks/'+id, { method:'DELETE' });
+  }
+  function userById(id){ return users.find(u=>u.id===id); }
+  function assigneeName(task){
+    if(!task.assignedTo) return 'Unassigned';
+    const u = userById(task.assignedTo);
+    return u ? u.name : 'Unknown';
   }
   async function loadPeople(){
     try{
@@ -417,8 +435,10 @@
       + `</div>`;
     html += `<p class="tt-card__title">${escapeHtml(task.title)}</p>`;
     if(task.notes) html += `<p class="tt-card__notes">${escapeHtml(task.notes)}</p>`;
+    const assignedToMe = currentUser && task.assignedTo === currentUser.id;
     html += `<div class="tt-tags">`
       + `<span class="tt-tag" style="border-color:${prio.color};color:${prio.color};background:transparent;">${prio.label}</span>`
+      + `<span class="tt-tag"${assignedToMe?' style="border-color:var(--ink);color:var(--ink);"':''}>${assignedToMe?'You':escapeHtml(assigneeName(task))}</span>`
       + (!blocked && (task.dependsOn||[]).length ? `<span class="tt-tag" style="border-color:var(--teal);color:var(--teal);background:transparent;">Deps clear</span>` : '')
       + `</div>`;
     if(blocked){
@@ -475,10 +495,9 @@
         b.title = 'Still blocked by an unfinished dependency';
         b.style.opacity='0.55';
       }
-      b.onclick = ()=>{
-        task.status = c.key;
-        task.completedAt = c.key==='done' ? new Date().toISOString() : null;
-        saveTasks(); render();
+      b.onclick = async ()=>{
+        await apiPatchTask(task.id, { status: c.key });
+        await loadTasks();
       };
       controls.appendChild(b);
     });
@@ -492,10 +511,9 @@
     del.className='tt-btn tt-danger';
     del.style.cssText='font-size:11px;padding:4px 8px;';
     del.textContent='Remove';
-    del.onclick = ()=>{
-      tasks = tasks.filter(t=>t.id!==task.id);
-      tasks.forEach(t=>{ t.dependsOn = (t.dependsOn||[]).filter(id=>id!==task.id); });
-      saveTasks(); render();
+    del.onclick = async ()=>{
+      await apiDeleteTask(task.id);
+      await loadTasks();
     };
     controls.appendChild(del);
     card.appendChild(controls);
@@ -506,13 +524,19 @@
     const d=document.createElement('div'); d.textContent = s||''; return d.innerHTML;
   }
 
+  function matchesFilter(t){
+    if(boardFilter==='team') return true;
+    // "Assigned to me" also surfaces still-unassigned tasks so nothing is hidden.
+    return !t.assignedTo || (currentUser && t.assignedTo===currentUser.id);
+  }
+
   function render(){
     const board = document.getElementById('tt-board');
     board.innerHTML = '';
     COLS.forEach(col=>{
       const colEl = document.createElement('div');
       colEl.className = 'tt-col';
-      const items = tasks.filter(t=>t.status===col.key).sort((a,b)=>{
+      const items = tasks.filter(t=>t.status===col.key && matchesFilter(t)).sort((a,b)=>{
         const pa=PRIORITY_ORDER[priorityOf(a)], pb=PRIORITY_ORDER[priorityOf(b)];
         if(pa!==pb) return pa-pb;
         return (a.createdAt||'').localeCompare(b.createdAt||'');
@@ -652,6 +676,7 @@
   function openModal(editId){
     const layer = document.getElementById('tt-modal-layer');
     const editing = editId ? tasks.find(t=>t.id===editId) : null;
+    const assigneeSel = editing ? (editing.assignedTo || '') : (currentUser ? currentUser.id : '');
     const otherTasks = tasks.filter(t=>t.id!==editId);
     const depOptions = otherTasks.map(t=>{
       const checked = editing && (editing.dependsOn||[]).includes(t.id) ? 'checked' : '';
@@ -708,6 +733,11 @@
         <select class="tt-select" id="tt-new-priority" style="margin:4px 0 10px;">
           ${PRIORITIES.map(p=>`<option value="${p.key}" ${(editing?priorityOf(editing):'medium')===p.key?'selected':''}>${p.label}</option>`).join('')}
         </select>
+        <label style="font-size:12px;color:var(--ink-soft);">Assign to</label>
+        <select class="tt-select" id="tt-new-assignee" style="margin:4px 0 10px;">
+          <option value="" ${assigneeSel===''?'selected':''}>Unassigned</option>
+          ${users.map(u=>`<option value="${u.id}" ${assigneeSel===u.id?'selected':''}>${escapeHtml(u.name)}${currentUser&&u.id===currentUser.id?' (you)':''}</option>`).join('')}
+        </select>
         <label style="font-size:12px;color:var(--ink-soft);">Notes (optional)</label>
         <textarea class="tt-textarea" id="tt-new-notes" style="margin:4px 0 10px;min-height:56px;" placeholder="Any context for this task">${editing ? escapeHtml(editing.notes||'') : ''}</textarea>
         <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
@@ -743,25 +773,32 @@
       const buildChainBtn = document.getElementById('tt-build-chain');
       if(buildChainBtn) buildChainBtn.onclick = ()=>openChainBuilder(editing.id);
     }
-    document.getElementById('tt-save').onclick = ()=>{
+    document.getElementById('tt-save').onclick = async ()=>{
       const title = document.getElementById('tt-new-title').value.trim();
       if(!title) return;
       const notes = document.getElementById('tt-new-notes').value.trim();
       const priority = document.getElementById('tt-new-priority').value;
+      const assignedTo = document.getElementById('tt-new-assignee').value || null;
       const deps = Array.from(layer.querySelectorAll('#tt-dep-list input:checked')).map(i=>i.value);
       if(editing){
-        editing.title = title;
-        editing.notes = notes;
-        editing.priority = priority;
-        editing.dependsOn = deps;
+        await apiPatchTask(editing.id, { title, notes, priority, assignedTo, dependsOn: deps });
       } else {
-        tasks.push({id:uid(), title, notes, priority, status:'todo', dependsOn:deps, createdAt:new Date().toISOString(), completedAt:null, externalDependency:null});
+        await apiCreateTask({ title, notes, priority, assignedTo, dependsOn: deps });
       }
-      saveTasks(); render();
       layer.innerHTML='';
+      await loadTasks();
     };
   }
   document.getElementById('tt-add-btn').addEventListener('click', ()=>openModal());
+
+  function updateFilterButtons(){
+    const mine = document.getElementById('tt-filter-mine');
+    const team = document.getElementById('tt-filter-team');
+    if(mine) mine.classList.toggle('active', boardFilter==='mine');
+    if(team) team.classList.toggle('active', boardFilter==='team');
+  }
+  document.getElementById('tt-filter-mine').addEventListener('click', ()=>{ boardFilter='mine'; updateFilterButtons(); render(); });
+  document.getElementById('tt-filter-team').addEventListener('click', ()=>{ boardFilter='team'; updateFilterButtons(); render(); });
 
   function openDependencyModal(taskId){
     const task = tasks.find(t=>t.id===taskId);
@@ -923,6 +960,7 @@
     currentUser = data.user;
     document.getElementById('tt-modal-layer').innerHTML = '';
     applyCurrentUser();
+    await loadUsers();
     await loadPeople();
     await loadTasks();
   }
@@ -990,6 +1028,7 @@
       return;
     }
     applyCurrentUser();
+    await loadUsers();
     await loadPeople();
     await loadTasks();
   }
