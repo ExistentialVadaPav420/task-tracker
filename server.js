@@ -374,12 +374,10 @@ function reportPara(children) {
   return new Paragraph({ children, spacing: { after: 160 } });
 }
 
-function completedPara(task, tasks) {
-  const runs = [
-    new TextRun(`At ${fmtTime(task.completedAt)}, you completed `),
-    new TextRun({ text: task.title, bold: true }),
-    new TextRun('. ')
-  ];
+function completedPara(task, tasks, voice) {
+  const runs = voice === 'third'
+    ? [ new TextRun(`At ${fmtTime(task.completedAt)}, `), new TextRun({ text: task.title, bold: true }), new TextRun(' was completed. ') ]
+    : [ new TextRun(`At ${fmtTime(task.completedAt)}, you completed `), new TextRun({ text: task.title, bold: true }), new TextRun('. ') ];
   const note = asSentence(task.notes);
   if (note) runs.push(new TextRun(note + ' '));
   const pr = priorityOf(task);
@@ -433,7 +431,7 @@ function blockedPara(task, tasks, people) {
 }
 
 // Build the Completed / In progress / Blocked sections for a set of tasks.
-function reportSections(tasks, allTasks, people, dateStr, headingLevel) {
+function reportSections(tasks, allTasks, people, dateStr, headingLevel, voice) {
   const completed = tasks
     .filter(t => t.completedAt && localDateStr(t.completedAt) === dateStr)
     .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
@@ -442,7 +440,7 @@ function reportSections(tasks, allTasks, people, dateStr, headingLevel) {
 
   const children = [];
   children.push(new Paragraph({ text: `Completed (${completed.length})`, heading: headingLevel }));
-  if (completed.length) completed.forEach(t => children.push(completedPara(t, allTasks)));
+  if (completed.length) completed.forEach(t => children.push(completedPara(t, allTasks, voice)));
   else children.push(reportPara([new TextRun('Nothing was marked done on this date.')]));
 
   children.push(new Paragraph({ text: `In progress (${inProgress.length})`, heading: headingLevel }));
@@ -468,22 +466,54 @@ function sendDoc(res, children, filename) {
   });
 }
 
+// Personal report: tasks assigned to the signed-in user.
 app.get('/api/report/:date', (req, res) => {
   const dateStr = req.params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
   }
-  const tasks = dbm.getTasks();
+  const user = auth.getCurrentUser(req);
+  const allTasks = dbm.getTasks();
   const people = dbm.getPeople();
-  const { children, counts } = reportSections(tasks, tasks, people, dateStr, HeadingLevel.HEADING_2);
+  const mine = allTasks.filter(t => t.assignedTo === user.id);
+  const { children, counts } = reportSections(mine, allTasks, people, dateStr, HeadingLevel.HEADING_2, 'you');
   const summary = `${counts.completed} task${counts.completed === 1 ? '' : 's'} completed, ` +
     `${counts.inProgress} in progress, ${counts.blocked} blocked.`;
   const doc = [
-    new Paragraph({ text: `Daily Report — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: `Daily Report — ${user.name} — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
     new Paragraph({ children: [new TextRun({ text: summary })], spacing: { after: 240 } }),
     ...children
   ];
   sendDoc(res, doc, `daily-report-${dateStr}.docx`);
+});
+
+// Team report: the same per-person sections, one group per user (plus any
+// unassigned tasks), concatenated under a name heading.
+app.get('/api/report/:date/team', (req, res) => {
+  const dateStr = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+  }
+  const allTasks = dbm.getTasks();
+  const people = dbm.getPeople();
+  const groups = dbm.getUsers().map(u => ({ name: u.name, id: u.id }));
+  groups.push({ name: 'Unassigned', id: null });
+
+  const children = [
+    new Paragraph({ text: `Team Report — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 })
+  ];
+  for (const g of groups) {
+    const groupTasks = allTasks.filter(t => (g.id === null ? !t.assignedTo : t.assignedTo === g.id));
+    if (g.id === null && !groupTasks.length) continue;
+    const { children: sec, counts } = reportSections(groupTasks, allTasks, people, dateStr, HeadingLevel.HEADING_3, 'third');
+    children.push(new Paragraph({ text: g.name, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 40 } }));
+    children.push(new Paragraph({
+      children: [new TextRun({ text: `${counts.completed} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.` })],
+      spacing: { after: 120 }
+    }));
+    sec.forEach(c => children.push(c));
+  }
+  sendDoc(res, children, `team-report-${dateStr}.docx`);
 });
 
 dbm.syncPersonUserLinks();

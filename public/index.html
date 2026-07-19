@@ -193,6 +193,10 @@
       <div class="tt-report__head">
         <h2>Daily report</h2>
         <div class="tt-report__actions">
+          <select id="tt-report-type" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;">
+            <option value="personal">My report</option>
+            <option value="team">Team report</option>
+          </select>
           <select id="tt-report-date" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;"></select>
           <button class="tt-btn" id="tt-copy-report">Copy</button>
           <button class="tt-btn" id="tt-download-report">Download .docx</button>
@@ -214,6 +218,7 @@
   let users = [];
   let currentUser = null;
   let boardFilter = 'mine'; // 'mine' | 'team'
+  let reportType = 'personal'; // 'personal' | 'team'
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
@@ -639,20 +644,18 @@
     return `flagged to ${name} on ${fmtShort(dep.flaggedAt)} — ${status}`;
   }
 
-  function buildReportText(dateStr){
-    const done = tasks.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
+  // Completed / In progress / Blocked narrative for one subset of tasks.
+  // Dependency lookups still use the full `tasks` pool.
+  function reportSubsetText(subset, dateStr, voice){
+    const done = subset.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
       .sort((a,b)=>a.completedAt.localeCompare(b.completedAt));
-    const blocked = tasks.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)));
-    const inProgress = tasks.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t));
-
-    let out = `Daily report — ${fmtDate(dateStr)}\n`;
-    out += '='.repeat(28) + '\n\n';
-    out += `${done.length} task${done.length===1?'':'s'} completed, ${inProgress.length} in progress, ${blocked.length} blocked.\n\n`;
-
+    const blocked = subset.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)));
+    const inProgress = subset.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t));
+    let out = '';
     out += `Completed (${done.length})\n`;
     if(done.length){
       done.forEach(t=>{
-        let s = `At ${fmtTime(t.completedAt)}, you completed ${t.title}. `;
+        let s = voice==='third' ? `At ${fmtTime(t.completedAt)}, ${t.title} was completed. ` : `At ${fmtTime(t.completedAt)}, you completed ${t.title}. `;
         if(t.notes) s += asSentence(t.notes) + ' ';
         const pr = priorityOf(t);
         if(pr==='urgent'||pr==='high') s += `This was flagged ${priorityMeta(t).label}. `;
@@ -660,10 +663,7 @@
         if(dependents.length) s += `This unblocks: ${dependents.map(d=>d.title).join(', ')}.`;
         out += s.trim() + '\n\n';
       });
-    } else {
-      out += 'Nothing was marked done on this date.\n\n';
-    }
-
+    } else { out += 'Nothing was marked done on this date.\n\n'; }
     out += `In progress (${inProgress.length})\n`;
     if(inProgress.length){
       inProgress.forEach(t=>{
@@ -673,10 +673,7 @@
         if(pr==='urgent'||pr==='high') s += `This is flagged ${priorityMeta(t).label}.`;
         out += s.trim() + '\n\n';
       });
-    } else {
-      out += 'Nothing is in progress.\n\n';
-    }
-
+    } else { out += 'Nothing is in progress.\n\n'; }
     out += `Blocked (${blocked.length})\n`;
     if(blocked.length){
       blocked.forEach(t=>{
@@ -687,14 +684,33 @@
           s += hasExternalBlock(t) ? `, and ${externalTail(t)}.` : '.';
         } else if(hasExternalBlock(t)){
           s = `${t.title} is blocked, ${externalTail(t)}.`;
-        } else {
-          s = `${t.title} is blocked.`;
-        }
+        } else { s = `${t.title} is blocked.`; }
         out += s + '\n\n';
       });
-    } else {
-      out += 'Nothing is blocked.\n\n';
+    } else { out += 'Nothing is blocked.\n\n'; }
+    return { text: out, counts: { done: done.length, inProgress: inProgress.length, blocked: blocked.length } };
+  }
+
+  function buildReportText(dateStr){
+    if(reportType==='team'){
+      let out = `Team report — ${fmtDate(dateStr)}\n` + '='.repeat(28) + '\n\n';
+      const groups = [...users.map(u=>({name:u.name, id:u.id})), {name:'Unassigned', id:null}];
+      groups.forEach(g=>{
+        const subset = tasks.filter(t=> g.id===null ? !t.assignedTo : t.assignedTo===g.id);
+        if(g.id===null && !subset.length) return;
+        const { text, counts } = reportSubsetText(subset, dateStr, 'third');
+        out += `${g.name}\n${'-'.repeat(Math.max(g.name.length,3))}\n`;
+        out += `${counts.done} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.\n\n`;
+        out += text + '\n';
+      });
+      return out.trimEnd() + '\n';
     }
+    const mine = tasks.filter(t=> currentUser && t.assignedTo===currentUser.id);
+    const { text, counts } = reportSubsetText(mine, dateStr, 'you');
+    let out = `Daily report — ${currentUser?currentUser.name:''} — ${fmtDate(dateStr)}\n`;
+    out += '='.repeat(28) + '\n\n';
+    out += `${counts.done} task${counts.done===1?'':'s'} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.\n\n`;
+    out += text;
     return out.trimEnd() + '\n';
   }
 
@@ -705,6 +721,7 @@
   }
 
   document.getElementById('tt-report-date').addEventListener('change', renderReport);
+  document.getElementById('tt-report-type').addEventListener('change', (e)=>{ reportType = e.target.value; renderReport(); });
   document.getElementById('tt-copy-report').addEventListener('click', ()=>{
     const text = document.getElementById('tt-report-box').textContent;
     navigator.clipboard.writeText(text).then(()=>{
@@ -715,7 +732,7 @@
   });
   document.getElementById('tt-download-report').addEventListener('click', ()=>{
     const dateStr = document.getElementById('tt-report-date').value || todayStr();
-    window.location.href = `/api/report/${dateStr}`;
+    window.location.href = reportType==='team' ? `/api/report/${dateStr}/team` : `/api/report/${dateStr}`;
   });
 
   function openModal(editId){
