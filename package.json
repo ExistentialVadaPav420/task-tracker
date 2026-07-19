@@ -1,7 +1,7 @@
 {
   "name": "task-tracker",
   "version": "1.0.0",
-  "description": "A task board with dependency tracking and auto-generated daily reports",
+  "description": "Zephyr — a team task board with dependency tracking and auto-generated reports",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

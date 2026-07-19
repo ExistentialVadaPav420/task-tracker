@@ -1,6 +1,6 @@
-# Task tracker
+# Zephyr
 
-A task board with dependency tracking and auto-generated daily reports, built for tracking work discussed in manager check-ins.
+A team task board with dependency tracking and auto-generated reports, built for tracking work discussed in manager check-ins.
 
 ## Run it
 
@@ -49,3 +49,6 @@ code .
 
 - The daily report is generated live from whatever's marked done in `data/tasks.json` — it doesn't send itself anywhere on a schedule. Use the Copy or Download button in the UI when you're ready to share it.
 - Dependencies between tasks are tracked by task ID; a task shows as "blocked" automatically if anything it depends on isn't done yet.
+## Always use
+
+lsof -ti:3000 | xargs kill -9 2>/dev/null; NODE_EXTRA_CA_CERTS=/Users/vibhav.shirke/Desktop/zscaler-root.pem npm start
