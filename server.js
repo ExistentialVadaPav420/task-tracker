@@ -1,11 +1,13 @@
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
+const session = require('express-session');
 const nodemailer = require('nodemailer');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel
 } = require('docx');
 const dbm = require('./db');
+const auth = require('./auth');
 
 let sgMail = null;
 if (process.env.SENDGRID_API_KEY) {
@@ -23,6 +25,57 @@ function priorityOf(task) {
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+if (!process.env.SESSION_SECRET) {
+  console.warn('[auth] SESSION_SECRET not set — using an insecure dev fallback. Set it in .env.');
+}
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'dev-insecure-secret-change-me',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 }
+}));
+
+// Auth gate: everything under /api requires a signed-in user, except the
+// login/bootstrap endpoints below.
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api')) return next();
+  const open = ['/api/me', '/api/login', '/api/logout', '/api/users'];
+  if (open.includes(req.path)) return next();
+  if (!auth.getCurrentUser(req)) return res.status(401).json({ error: 'Not signed in' });
+  next();
+});
+
+// --- Auth / users ---
+
+app.get('/api/me', (req, res) => res.json({ user: auth.getCurrentUser(req) }));
+
+app.get('/api/users', (req, res) => res.json(dbm.getUsers()));
+
+app.post('/api/users', (req, res) => {
+  const { name, email } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name is required' });
+  res.status(201).json(dbm.addUser({ name, email }));
+});
+
+app.delete('/api/users/:id', (req, res) => {
+  if (!auth.getCurrentUser(req)) return res.status(401).json({ error: 'Not signed in' });
+  dbm.db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/login', (req, res) => {
+  const { userId } = req.body || {};
+  const user = dbm.getUser(userId);
+  if (!user) return res.status(400).json({ error: 'Unknown user' });
+  auth.login(req, userId);
+  res.json({ user });
+});
+
+app.post('/api/logout', async (req, res) => {
+  await auth.logout(req);
+  res.json({ ok: true });
+});
 
 // --- Tasks ---
 

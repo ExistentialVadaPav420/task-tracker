@@ -146,7 +146,7 @@
   <aside class="app-sidebar">
     <div class="app-sidebar__session">
       <p>Active Session</p>
-      <h2>Task Ledger</h2>
+      <h2 id="tt-session-name">Task Ledger</h2>
     </div>
     <nav>
       <a href="#" class="side-link active"><span class="material-symbols-outlined">grid_view</span>Dashboard</a>
@@ -158,7 +158,7 @@
     <div class="app-sidebar__foot">
       <a href="#report" class="tt-btn">Generate Report</a>
       <a href="#" class="side-link"><span class="material-symbols-outlined">help</span>Help</a>
-      <a href="#" class="side-link"><span class="material-symbols-outlined">logout</span>Logout</a>
+      <a href="#" class="side-link" id="tt-logout"><span class="material-symbols-outlined">logout</span>Logout</a>
     </div>
   </aside>
 
@@ -192,6 +192,8 @@
   const STORAGE_KEY = 'tasks';
   let tasks = [];
   let people = [];
+  let users = [];
+  let currentUser = null;
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
@@ -903,7 +905,91 @@
     draw();
   }
 
+  // --- Auth / sign-in ---
+  async function loadUsers(){
+    try{ users = await fetch('/api/users').then(r=>r.json()); }catch(e){ users = []; }
+  }
+  function applyCurrentUser(){
+    const nameEl = document.getElementById('tt-session-name');
+    if(nameEl) nameEl.textContent = currentUser ? currentUser.name : 'Task Ledger';
+  }
+  async function doLogin(userId){
+    const res = await fetch('/api/login', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ userId })
+    });
+    if(!res.ok) return;
+    const data = await res.json();
+    currentUser = data.user;
+    document.getElementById('tt-modal-layer').innerHTML = '';
+    applyCurrentUser();
+    await loadPeople();
+    await loadTasks();
+  }
+  async function doLogout(){
+    await fetch('/api/logout', { method:'POST' });
+    currentUser = null;
+    location.reload();
+  }
+
+  function showSignIn(){
+    const layer = document.getElementById('tt-modal-layer');
+    function draw(){
+      const list = users.length
+        ? users.map(u=>`<button class="tt-btn" data-login="${u.id}" style="display:flex;justify-content:space-between;width:100%;text-align:left;margin-bottom:8px;">
+            <span>${escapeHtml(u.name)}</span><span style="color:var(--ink-soft);">${escapeHtml(u.email||'')}</span>
+          </button>`).join('')
+        : '<p style="font-size:12.5px;color:var(--ink-soft);margin:6px 0 14px;">No teammates yet. Add the first one below.</p>';
+      layer.innerHTML = `
+      <div style="min-height:400px;background:var(--paper);display:flex;align-items:center;justify-content:center;position:fixed;inset:0;z-index:100;">
+        <div style="background:var(--card);border-radius:14px;padding:1.75rem 2rem;width:420px;max-width:92vw;border:1px solid var(--line);">
+          <p style="font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px;">Task Ledger</p>
+          <h2 style="font-size:24px;margin:0 0 4px;">Who's this?</h2>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 18px;">Pick your name to sign in. No password — this is an internal prototype.</p>
+          <div style="margin-bottom:16px;">${list}</div>
+          <div style="border-top:1px solid var(--line);padding-top:14px;">
+            <label style="font-size:12px;color:var(--ink-soft);">Add a teammate</label>
+            <input class="tt-input" id="tt-user-name" style="margin:4px 0 8px;" placeholder="Name"/>
+            <input class="tt-input" id="tt-user-email" style="margin:0 0 8px;" placeholder="email@company.com (optional)"/>
+            <span id="tt-user-status" style="font-size:12px;color:var(--coral);"></span>
+            <div style="margin-top:8px;"><button class="tt-btn tt-btn-primary" id="tt-user-add">Add teammate</button></div>
+          </div>
+        </div>
+      </div>`;
+      layer.querySelectorAll('[data-login]').forEach(b=>{
+        b.onclick = ()=>doLogin(b.getAttribute('data-login'));
+      });
+      document.getElementById('tt-user-add').onclick = async ()=>{
+        const name = document.getElementById('tt-user-name').value.trim();
+        const email = document.getElementById('tt-user-email').value.trim();
+        const statusEl = document.getElementById('tt-user-status');
+        if(!name){ statusEl.textContent='Name is required.'; return; }
+        try{
+          const res = await fetch('/api/users', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ name, email })
+          });
+          if(!res.ok){ const d=await res.json(); statusEl.textContent=d.error||'Could not add.'; return; }
+          await loadUsers();
+          draw();
+        }catch(e){ statusEl.textContent='Network error.'; }
+      };
+    }
+    draw();
+  }
+
+  const logoutLink = document.getElementById('tt-logout');
+  if(logoutLink) logoutLink.onclick = (e)=>{ e.preventDefault(); doLogout(); };
+
   async function init(){
+    const me = await fetch('/api/me').then(r=>r.json()).catch(()=>({ user:null }));
+    currentUser = me.user;
+    if(!currentUser){
+      await loadUsers();
+      showSignIn();
+      return;
+    }
+    applyCurrentUser();
     await loadPeople();
     await loadTasks();
   }
