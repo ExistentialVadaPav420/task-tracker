@@ -1,12 +1,11 @@
 require('dotenv').config();
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
 const {
   Document, Packer, Paragraph, TextRun, HeadingLevel
 } = require('docx');
-
+const dbm = require('./db');
 
 let sgMail = null;
 if (process.env.SENDGRID_API_KEY) {
@@ -15,58 +14,34 @@ if (process.env.SENDGRID_API_KEY) {
 }
 
 const app = express();
-
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data', 'tasks.json');
-const PEOPLE_FILE = path.join(__dirname, 'data', 'people.json');
 
 const PRIORITY_LABELS = { urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low' };
 function priorityOf(task) {
   return PRIORITY_LABELS[task.priority] ? task.priority : 'medium';
 }
-function priorityLabel(task) {
-  return PRIORITY_LABELS[priorityOf(task)];
-}
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-function readJson(file) {
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
-  } catch (e) {
-    return [];
-  }
-}
-function writeJson(file, data) {
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
-const readTasks = () => readJson(DATA_FILE);
-const writeTasks = (tasks) => writeJson(DATA_FILE, tasks);
-const readPeople = () => readJson(PEOPLE_FILE);
-const writePeople = (people) => writeJson(PEOPLE_FILE, people);
+// --- Tasks ---
 
 app.get('/api/tasks', (req, res) => {
-  res.json(readTasks());
+  res.json(dbm.getTasks());
 });
 
 app.put('/api/tasks', (req, res) => {
   if (!Array.isArray(req.body)) {
     return res.status(400).json({ error: 'Expected an array of tasks' });
   }
-  writeTasks(req.body);
+  dbm.replaceAllTasks(req.body);
   res.json({ ok: true });
 });
 
 // --- Colleague directory ---
 
-function newId(prefix) {
-  return prefix + Math.random().toString(36).slice(2, 10);
-}
-
 app.get('/api/people', (req, res) => {
-  res.json(readPeople());
+  res.json(dbm.getPeople());
 });
 
 app.post('/api/people', (req, res) => {
@@ -74,18 +49,12 @@ app.post('/api/people', (req, res) => {
   if (!name || !email) {
     return res.status(400).json({ error: 'name and email are required' });
   }
-  const people = readPeople();
-  const person = { id: newId('p'), name: String(name).trim(), email: String(email).trim() };
-  people.push(person);
-  writePeople(people);
-  res.status(201).json(person);
+  res.status(201).json(dbm.addPerson({ name, email }));
 });
 
 app.delete('/api/people/:id', (req, res) => {
-  const people = readPeople();
-  const next = people.filter(p => p.id !== req.params.id);
-  writePeople(next);
-  res.json({ ok: true, removed: people.length - next.length });
+  const removed = dbm.deletePerson(req.params.id);
+  res.json({ ok: true, removed });
 });
 
 // --- Colleague dependency flags + email ---
@@ -149,45 +118,43 @@ async function sendDependencyEmail(person, task) {
 
 app.post('/api/tasks/:id/flag-dependency', async (req, res) => {
   const { personId, note } = req.body || {};
-  const tasks = readTasks();
-  const task = tasks.find(t => t.id === req.params.id);
+  const task = dbm.getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  const person = readPeople().find(p => p.id === personId);
+  const person = dbm.getPerson(personId);
   if (!person) return res.status(400).json({ error: 'Unknown colleague' });
 
   const now = new Date().toISOString();
-  task.externalDependency = {
+  dbm.setExternalDependency(task.id, {
     personId,
     note: note ? String(note).trim() : '',
     flaggedAt: now,
     notifiedAt: null,
     resolvedAt: null
-  };
+  });
+  // Re-read so email uses the persisted dependency.
+  let updated = dbm.getTask(task.id);
 
   let emailed = false;
   let emailError = null;
   try {
-    await sendDependencyEmail(person, task);
-    task.externalDependency.notifiedAt = new Date().toISOString();
+    await sendDependencyEmail(person, updated);
+    dbm.markNotified(task.id, new Date().toISOString());
     emailed = true;
   } catch (err) {
     emailError = err.message;
     console.error('Dependency email failed', err);
   }
 
-  writeTasks(tasks);
-  res.json({ task, emailed, error: emailError });
+  res.json({ task: dbm.getTask(task.id), emailed, error: emailError });
 });
 
 app.post('/api/tasks/:id/resolve-dependency', (req, res) => {
-  const tasks = readTasks();
-  const task = tasks.find(t => t.id === req.params.id);
+  const task = dbm.getTask(req.params.id);
   if (!task || !task.externalDependency) {
     return res.status(404).json({ error: 'No dependency to resolve' });
   }
-  task.externalDependency.resolvedAt = new Date().toISOString();
-  writeTasks(tasks);
-  res.json({ task });
+  const updated = dbm.resolveExternalDependency(req.params.id, new Date().toISOString());
+  res.json({ task: updated });
 });
 
 // --- Dependency chain ---
@@ -211,18 +178,15 @@ app.post('/api/tasks/:id/chain', (req, res) => {
   if (!Array.isArray(chain) || !chain.length) {
     return res.status(400).json({ error: 'chain must be a non-empty array' });
   }
-  const tasks = readTasks();
-  const task = tasks.find(t => t.id === req.params.id);
+  const task = dbm.getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  task.chain = chain.map(normalizeStage);
-  writeTasks(tasks);
-  res.json({ task });
+  const updated = dbm.setChain(task.id, chain.map(normalizeStage));
+  res.json({ task: updated });
 });
 
 app.post('/api/tasks/:id/chain/advance', (req, res) => {
   const { note } = req.body || {};
-  const tasks = readTasks();
-  const task = tasks.find(t => t.id === req.params.id);
+  const task = dbm.getTask(req.params.id);
   if (!task || !Array.isArray(task.chain) || !task.chain.length) {
     return res.status(404).json({ error: 'Task has no chain' });
   }
@@ -231,7 +195,6 @@ app.post('/api/tasks/:id/chain/advance', (req, res) => {
   if (idx === -1) return res.status(400).json({ error: 'Chain has no active stage' });
   const now = new Date().toISOString();
   if (note) {
-    // Flag the active stage as blocked with a note; do not advance.
     chain[idx].status = 'blocked';
     chain[idx].note = String(note);
   } else {
@@ -243,13 +206,12 @@ app.post('/api/tasks/:id/chain/advance', (req, res) => {
       chain[idx + 1].startedAt = now;
     }
   }
-  writeTasks(tasks);
-  res.json({ task });
+  const updated = dbm.setChain(task.id, chain);
+  res.json({ task: updated });
 });
 
 app.post('/api/tasks/:id/chain/resolve-blocker', (req, res) => {
-  const tasks = readTasks();
-  const task = tasks.find(t => t.id === req.params.id);
+  const task = dbm.getTask(req.params.id);
   if (!task || !Array.isArray(task.chain)) {
     return res.status(404).json({ error: 'Task has no chain' });
   }
@@ -257,14 +219,13 @@ app.post('/api/tasks/:id/chain/resolve-blocker', (req, res) => {
   if (!stage) return res.status(400).json({ error: 'No blocked stage to resolve' });
   stage.status = 'current';
   stage.note = null;
-  writeTasks(tasks);
-  res.json({ task });
+  const updated = dbm.setChain(task.id, task.chain);
+  res.json({ task: updated });
 });
 
 // --- Daily report (.docx) ---
 
 function localDateStr(iso) {
-  // Match a completedAt timestamp to a YYYY-MM-DD local date.
   const d = new Date(iso);
   const off = d.getTimezoneOffset() * 60000;
   return new Date(d.getTime() - off).toISOString().slice(0, 10);
@@ -305,14 +266,12 @@ function personName(personId, people) {
   return p ? p.name : 'a colleague';
 }
 
-// Turn a free-form note into a standalone sentence.
 function asSentence(note) {
   const s = String(note || '').trim();
   if (!s) return '';
   return /[.!?]$/.test(s) ? s : s + '.';
 }
 
-// A normal (non-bulleted) report paragraph with spacing after it.
 function reportPara(children) {
   return new Paragraph({ children, spacing: { after: 160 } });
 }
@@ -375,59 +334,58 @@ function blockedPara(task, tasks, people) {
   return reportPara(runs);
 }
 
-app.get('/api/report/:date', (req, res) => {
-  const dateStr = req.params.date;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
-  }
-  const tasks = readTasks();
-  const people = readPeople();
-
+// Build the Completed / In progress / Blocked sections for a set of tasks.
+function reportSections(tasks, allTasks, people, dateStr, headingLevel) {
   const completed = tasks
     .filter(t => t.completedAt && localDateStr(t.completedAt) === dateStr)
     .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const blocked = tasks.filter(t => t.status !== 'done' && (isBlocked(t, tasks) || hasExternalBlock(t)));
-  const inProgress = tasks.filter(t => t.status === 'inprogress' && !isBlocked(t, tasks) && !hasExternalBlock(t));
+  const blocked = tasks.filter(t => t.status !== 'done' && (isBlocked(t, allTasks) || hasExternalBlock(t)));
+  const inProgress = tasks.filter(t => t.status === 'inprogress' && !isBlocked(t, allTasks) && !hasExternalBlock(t));
 
-  const summary = `${completed.length} task${completed.length === 1 ? '' : 's'} completed, ` +
-    `${inProgress.length} in progress, ${blocked.length} blocked.`;
+  const children = [];
+  children.push(new Paragraph({ text: `Completed (${completed.length})`, heading: headingLevel }));
+  if (completed.length) completed.forEach(t => children.push(completedPara(t, allTasks)));
+  else children.push(reportPara([new TextRun('Nothing was marked done on this date.')]));
 
-  const children = [
-    new Paragraph({ text: `Daily Report — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
-    new Paragraph({ children: [new TextRun({ text: summary })], spacing: { after: 240 } }),
-    new Paragraph({ text: `Completed (${completed.length})`, heading: HeadingLevel.HEADING_2 })
-  ];
+  children.push(new Paragraph({ text: `In progress (${inProgress.length})`, heading: headingLevel }));
+  if (inProgress.length) inProgress.forEach(t => children.push(inProgressPara(t)));
+  else children.push(reportPara([new TextRun('Nothing is in progress.')]));
 
-  if (completed.length) {
-    completed.forEach(t => children.push(completedPara(t, tasks)));
-  } else {
-    children.push(reportPara([new TextRun('Nothing was marked done on this date.')]));
-  }
+  children.push(new Paragraph({ text: `Blocked (${blocked.length})`, heading: headingLevel }));
+  if (blocked.length) blocked.forEach(t => children.push(blockedPara(t, allTasks, people)));
+  else children.push(reportPara([new TextRun('Nothing is blocked.')]));
 
-  children.push(new Paragraph({ text: `In progress (${inProgress.length})`, heading: HeadingLevel.HEADING_2 }));
-  if (inProgress.length) {
-    inProgress.forEach(t => children.push(inProgressPara(t)));
-  } else {
-    children.push(reportPara([new TextRun('Nothing is in progress.')]));
-  }
+  return { children, counts: { completed: completed.length, inProgress: inProgress.length, blocked: blocked.length } };
+}
 
-  children.push(new Paragraph({ text: `Blocked (${blocked.length})`, heading: HeadingLevel.HEADING_2 }));
-  if (blocked.length) {
-    blocked.forEach(t => children.push(blockedPara(t, tasks, people)));
-  } else {
-    children.push(reportPara([new TextRun('Nothing is blocked.')]));
-  }
-
+function sendDoc(res, children, filename) {
   const doc = new Document({ sections: [{ children }] });
-
   Packer.toBuffer(doc).then(buffer => {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
-    res.setHeader('Content-Disposition', `attachment; filename="daily-report-${dateStr}.docx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.send(buffer);
   }).catch(err => {
     console.error('Report generation failed', err);
     res.status(500).json({ error: 'Failed to generate report' });
   });
+}
+
+app.get('/api/report/:date', (req, res) => {
+  const dateStr = req.params.date;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+  }
+  const tasks = dbm.getTasks();
+  const people = dbm.getPeople();
+  const { children, counts } = reportSections(tasks, tasks, people, dateStr, HeadingLevel.HEADING_2);
+  const summary = `${counts.completed} task${counts.completed === 1 ? '' : 's'} completed, ` +
+    `${counts.inProgress} in progress, ${counts.blocked} blocked.`;
+  const doc = [
+    new Paragraph({ text: `Daily Report — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ children: [new TextRun({ text: summary })], spacing: { after: 240 } }),
+    ...children
+  ];
+  sendDoc(res, doc, `daily-report-${dateStr}.docx`);
 });
 
 app.listen(PORT, () => {

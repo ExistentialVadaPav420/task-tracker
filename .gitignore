@@ -1,4 +1,7 @@
 node_modules/
 data/tasks.json
 data/people.json
+data/tracker.db
+data/tracker.db-wal
+data/tracker.db-shm
 .env
