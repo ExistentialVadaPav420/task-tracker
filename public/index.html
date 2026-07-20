@@ -98,6 +98,31 @@
   .tt-col__body{display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 260px);overflow-y:auto;padding-right:4px;}
   .tt-empty{font-size:13px;color:var(--ink-soft);margin:4px 2px;}
 
+  /* Compact list view */
+  .tt-list-cols{display:flex;gap:26px;align-items:flex-start;}
+  @media (max-width:900px){ .tt-list-cols{flex-direction:column;} }
+  .tt-list-col{flex:1;min-width:0;width:100%;background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.65);border-radius:24px;padding:16px;box-shadow:0 1px 2px rgba(17,28,44,.04);}
+  @media (prefers-color-scheme: dark){ .tt-list-col{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.06);} }
+  .tt-list-col__head{display:flex;align-items:center;gap:8px;padding:6px 6px 12px;}
+  .tt-list-p{font-family:var(--font-mono);font-weight:700;color:var(--primary);font-size:13px;}
+  .tt-list-plabel{flex:1;font-family:var(--font-body);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);}
+  .tt-list-rows{display:flex;flex-direction:column;}
+  .tt-list-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid var(--line);}
+  .tt-list-row:last-child{border-bottom:0;}
+  .tt-check{background:none;border:0;padding:0;display:inline-flex;color:var(--line-strong);cursor:pointer;}
+  .tt-check .material-symbols-outlined{font-size:20px;}
+  .tt-check:hover{color:var(--primary);}
+  .tt-check-done{color:var(--teal);font-size:20px;}
+  .tt-list-title{flex:1;font-size:14px;color:var(--ink);cursor:pointer;}
+  .tt-list-title:hover{color:var(--primary);}
+  .tt-list-flag{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--coral);background:var(--coral-bg);padding:2px 7px;border-radius:999px;}
+  .tt-history{margin-top:34px;}
+  .tt-history h3{font-family:var(--font-display);font-size:22px;color:var(--primary);margin-bottom:14px;}
+  .tt-history__day{border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:10px;background:var(--card);}
+  .tt-history__day summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:600;font-size:14px;list-style:none;}
+  .tt-history__day summary::-webkit-details-marker{display:none;}
+  .tt-history__list{margin-top:10px;}
+
   /* Card */
   .tt-card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line-strong);border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(17,28,44,.05);transition:transform .3s cubic-bezier(.175,.885,.32,1.275), box-shadow .3s ease;}
   .tt-card:hover{transform:translateY(-4px);box-shadow:0 12px 24px -10px rgba(27,77,62,.20);}
@@ -130,12 +155,27 @@
   .tt-chip{display:inline-flex;align-items:center;gap:4px;font-size:10px;letter-spacing:.04em;text-transform:uppercase;padding:3px 9px;border-radius:999px;font-family:var(--font-mono);}
   @keyframes ttpulse{0%,100%{opacity:1;transform:scale(1);}50%{opacity:.3;transform:scale(.6);}}
   .tt-pulse{animation:ttpulse 1.2s ease-in-out infinite;}
+  .tt-modal-x{background:none;border:0;padding:6px;border-radius:999px;color:var(--ink-soft);display:inline-flex;cursor:pointer;}
+  .tt-modal-x:hover{background:var(--sc-high);color:var(--ink);}
+  .tt-modal-eyebrow{font-family:var(--font-mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-soft);}
+  @keyframes ttpop{0%{transform:scale(.96);opacity:0;}100%{transform:scale(1);opacity:1;}}
+  .tt-modal-card{animation:ttpop .28s cubic-bezier(.16,1,.3,1);box-shadow:0 20px 45px -20px rgba(17,28,44,.45);}
 
   /* Report */
   .tt-report{border-top:1px solid var(--line);margin-top:44px;padding-top:30px;}
   .tt-report__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
   .tt-report__head h2{font-size:22px;color:var(--primary);}
-  .tt-report__actions{display:flex;gap:8px;align-items:center;}
+  .tt-report__actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .tt-rtable{width:100%;border-collapse:collapse;font-size:13.5px;}
+  .tt-rtable th{text-align:left;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);padding:0 12px 10px;border-bottom:1px solid var(--line);}
+  .tt-rtable td{padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
+  .tt-rt-subject{font-weight:600;color:var(--ink);}
+  .tt-rt-status{display:inline-flex;align-items:center;gap:5px;font-family:var(--font-mono);font-size:11px;padding:4px 10px;border-radius:999px;background:var(--sc);color:var(--ink-soft);white-space:nowrap;}
+  .tt-rt-status .material-symbols-outlined{font-size:15px;}
+  .tt-rt-done{background:var(--teal-bg);color:var(--teal);}
+  .tt-rt-blocked{background:var(--coral-bg);color:var(--coral);}
+  .tt-rt-deps{color:var(--ink-soft);}
+  .tt-rt-depsblocked{color:var(--coral);}
 
   .material-symbols-outlined{font-family:'Material Symbols Outlined';font-weight:normal;font-style:normal;line-height:1;vertical-align:middle;font-variation-settings:'FILL' 0,'wght' 400,'GRAD' 0,'opsz' 24;}
   ::-webkit-scrollbar{width:8px;height:8px;}
@@ -197,20 +237,31 @@
         <nav class="tt-breadcrumb"><span>Workspace</span><span>/</span><b>Board</b></nav>
         <h1>Task Board</h1>
       </div>
-      <div class="tt-seg">
-        <button class="tt-seg__btn active" id="tt-filter-mine">Assigned to me</button>
-        <button class="tt-seg__btn" id="tt-filter-team">Whole team</button>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <div class="tt-seg">
+          <button class="tt-seg__btn active" id="tt-view-board">Board</button>
+          <button class="tt-seg__btn" id="tt-view-list">List</button>
+        </div>
+        <div class="tt-seg">
+          <button class="tt-seg__btn active" id="tt-filter-mine">Assigned to me</button>
+          <button class="tt-seg__btn" id="tt-filter-team">Whole team</button>
+        </div>
       </div>
     </div>
 
     <div id="tt-waiting"></div>
 
     <div id="tt-board"></div>
+    <div id="tt-list" style="display:none;"></div>
 
     <section class="tt-report" id="report">
       <div class="tt-report__head">
         <h2>Daily report</h2>
         <div class="tt-report__actions">
+          <select id="tt-report-format" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;">
+            <option value="narrative">Narrative</option>
+            <option value="table">Table</option>
+          </select>
           <select id="tt-report-type" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;">
             <option value="personal">My report</option>
             <option value="team">Team report</option>
@@ -220,7 +271,8 @@
           <button class="tt-btn" id="tt-download-report">Download .docx</button>
         </div>
       </div>
-      <pre id="tt-report-box" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
+      <pre id="tt-report-box" style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
+      <div id="tt-report-table" style="display:none;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;"></div>
       <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
     </section>
   </main>
@@ -236,7 +288,9 @@
   let users = [];
   let currentUser = null;
   let boardFilter = 'mine'; // 'mine' | 'team'
+  let viewMode = 'board'; // 'board' | 'list'
   let reportType = 'personal'; // 'personal' | 'team'
+  let reportFormat = 'narrative'; // 'narrative' | 'table'
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
@@ -598,8 +652,59 @@
     return !t.assignedTo || (currentUser && t.assignedTo===currentUser.id);
   }
 
+  function renderList(container){
+    const PGROUPS = [
+      { label:'Must finish', prios:['urgent'] },
+      { label:'Next 48h', prios:['high'] },
+      { label:'Weekly', prios:['medium','low'] }
+    ];
+    const active = tasks.filter(t=>t.status!=='done' && matchesFilter(t));
+    let html = '<div class="tt-list-cols">';
+    PGROUPS.forEach((g,i)=>{
+      const items = active.filter(t=>g.prios.includes(priorityOf(t)))
+        .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
+      html += `<div class="tt-list-col"><div class="tt-list-col__head"><span class="tt-list-p">P${i}</span><span class="tt-list-plabel">${g.label}</span><span class="tt-count">${items.length}</span></div><div class="tt-list-rows">`;
+      if(!items.length) html += '<p class="tt-empty" style="padding:6px;">Nothing here.</p>';
+      items.forEach(t=>{
+        const blocked = isBlocked(t) || hasExternalBlock(t);
+        html += `<div class="tt-list-row">
+          <button class="tt-check" data-check="${t.id}" title="Mark done"><span class="material-symbols-outlined">circle</span></button>
+          <span class="tt-list-title" data-open="${t.id}">${escapeHtml(t.title)}</span>
+          ${blocked?'<span class="tt-list-flag">blocked</span>':''}
+        </div>`;
+      });
+      html += '</div></div>';
+    });
+    html += '</div>';
+    // History: completed tasks grouped by date
+    const byDate = {};
+    tasks.filter(t=>t.completedAt).forEach(t=>{ const d=todayStr(new Date(t.completedAt)); (byDate[d]=byDate[d]||[]).push(t); });
+    const dates = Object.keys(byDate).sort().reverse();
+    html += '<div class="tt-history"><h3>History</h3>';
+    if(!dates.length) html += '<p class="tt-empty">No completed tasks yet.</p>';
+    dates.forEach(d=>{
+      const items = byDate[d];
+      html += `<details class="tt-history__day"><summary><span>${fmtDate(d)}</span><span class="tt-count">${items.length} done</span></summary><div class="tt-history__list">${items.map(t=>`<div class="tt-list-row"><span class="material-symbols-outlined tt-check-done">check_circle</span><span class="tt-list-title" data-open="${t.id}" style="text-decoration:line-through;color:var(--ink-soft);">${escapeHtml(t.title)}</span></div>`).join('')}</div></details>`;
+    });
+    html += '</div>';
+    container.innerHTML = html;
+    container.querySelectorAll('[data-check]').forEach(b=>{ b.onclick = async ()=>{ await apiPatchTask(b.getAttribute('data-check'), { status:'done' }); await loadTasks(); }; });
+    container.querySelectorAll('[data-open]').forEach(s=>{ s.onclick = ()=>openModal(s.getAttribute('data-open')); });
+  }
+
   function render(){
     const board = document.getElementById('tt-board');
+    const listEl = document.getElementById('tt-list');
+    if(viewMode==='list'){
+      board.style.display = 'none';
+      listEl.style.display = 'block';
+      renderList(listEl);
+      renderReportControls();
+      renderReport();
+      return;
+    }
+    listEl.style.display = 'none';
+    board.style.display = 'flex';
     board.innerHTML = '';
     COLS.forEach(col=>{
       const colEl = document.createElement('div');
@@ -733,16 +838,70 @@
     return out.trimEnd() + '\n';
   }
 
+  function reportScopeTasks(){
+    if(reportType==='team') return tasks.slice();
+    return tasks.filter(t=> currentUser && t.assignedTo===currentUser.id);
+  }
+  function getReportRows(dateStr){
+    const scope = reportScopeTasks();
+    const rows = [];
+    scope.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
+      .sort((a,b)=>a.completedAt.localeCompare(b.completedAt))
+      .forEach(t=>rows.push({ subject:t.title, kind:'done', status:'Done', deps:'—' }));
+    scope.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t))
+      .forEach(t=>rows.push({ subject:t.title, kind:'progress', status:'In progress', deps:'—' }));
+    scope.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)))
+      .forEach(t=>{
+        const tb = blockers(t).map(b=>b.title);
+        let deps = tb.length ? ('Waiting on ' + tb.join(', ')) : '';
+        if(hasExternalBlock(t)) deps = (deps ? deps + '; ' : '') + externalTail(t);
+        rows.push({ subject:t.title, kind:'blocked', status:'Blocked', deps: deps || 'Blocked' });
+      });
+    return rows;
+  }
+  function statusIcon(kind){
+    const icon = kind==='done' ? 'check_circle' : (kind==='blocked' ? 'error' : 'pending');
+    return `<span class="material-symbols-outlined">${icon}</span>`;
+  }
+  function renderReportTableHTML(dateStr){
+    const rows = getReportRows(dateStr);
+    if(!rows.length) return '<p class="tt-empty" style="padding:12px;">Nothing to report for this date.</p>';
+    const body = rows.map(r=>`<tr>
+      <td class="tt-rt-subject">${escapeHtml(r.subject)}</td>
+      <td><span class="tt-rt-status tt-rt-${r.kind}">${statusIcon(r.kind)}${r.status}</span></td>
+      <td class="tt-rt-deps ${r.kind==='blocked'?'tt-rt-depsblocked':''}">${escapeHtml(r.deps)}</td>
+    </tr>`).join('');
+    return `<table class="tt-rtable"><thead><tr><th>Task Subject</th><th>Status</th><th>Dependencies or Blockers</th></tr></thead><tbody>${body}</tbody></table>`;
+  }
+  function buildReportTableText(dateStr){
+    const rows = getReportRows(dateStr);
+    let out = `Report — ${fmtDate(dateStr)}\n\n`;
+    if(!rows.length) return out + 'Nothing to report for this date.\n';
+    rows.forEach(r=>{ out += `- [${r.status}] ${r.subject}${(r.deps && r.deps!=='—') ? ' — ' + r.deps : ''}\n`; });
+    return out;
+  }
+
   function renderReport(){
-    const sel = document.getElementById('tt-report-date');
-    const dateStr = sel.value || todayStr();
-    document.getElementById('tt-report-box').textContent = buildReportText(dateStr);
+    const dateStr = document.getElementById('tt-report-date').value || todayStr();
+    const pre = document.getElementById('tt-report-box');
+    const tbl = document.getElementById('tt-report-table');
+    if(reportFormat==='table'){
+      pre.style.display = 'none';
+      tbl.style.display = 'block';
+      tbl.innerHTML = renderReportTableHTML(dateStr);
+    } else {
+      tbl.style.display = 'none';
+      pre.style.display = 'block';
+      pre.textContent = buildReportText(dateStr);
+    }
   }
 
   document.getElementById('tt-report-date').addEventListener('change', renderReport);
   document.getElementById('tt-report-type').addEventListener('change', (e)=>{ reportType = e.target.value; renderReport(); });
+  document.getElementById('tt-report-format').addEventListener('change', (e)=>{ reportFormat = e.target.value; renderReport(); });
   document.getElementById('tt-copy-report').addEventListener('click', ()=>{
-    const text = document.getElementById('tt-report-box').textContent;
+    const dateStr = document.getElementById('tt-report-date').value || todayStr();
+    const text = reportFormat==='table' ? buildReportTableText(dateStr) : document.getElementById('tt-report-box').textContent;
     navigator.clipboard.writeText(text).then(()=>{
       const btn = document.getElementById('tt-copy-report');
       const orig = btn.textContent; btn.textContent='Copied';
@@ -806,8 +965,14 @@
     }
     layer.innerHTML = `
     <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
-      <div style="background:var(--card);border-radius:14px;padding:1.25rem 1.5rem;width:360px;max-width:90vw;border:0.5px solid var(--line);max-height:90vh;overflow-y:auto;">
-        <h3 style="font-size:16px;margin-bottom:12px;">${editing ? 'Edit task' : 'New task'}</h3>
+      <div class="tt-modal-card" style="background:var(--card);border-radius:16px;padding:1.25rem 1.5rem;width:380px;max-width:90vw;border:1px solid var(--line);max-height:90vh;overflow-y:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="material-symbols-outlined" style="color:var(--primary);font-size:20px;font-variation-settings:'FILL' 1;">assignment</span>
+            <span class="tt-modal-eyebrow">${editing ? 'Task detail' : 'New task'}</span>
+          </div>
+          <button class="tt-modal-x" id="tt-modal-close" title="Close"><span class="material-symbols-outlined" style="font-size:20px;">close</span></button>
+        </div>
         <label style="font-size:12px;color:var(--ink-soft);">Title</label>
         <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
         <label style="font-size:12px;color:var(--ink-soft);">Priority</label>
@@ -825,13 +990,19 @@
         <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 14px;">${depOptions}</div>
         ${extSection}
         ${chainBuilderSection}
-        <div style="display:flex;justify-content:flex-end;gap:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;">
           <button class="tt-btn" id="tt-cancel">Cancel</button>
-          <button class="tt-btn tt-btn-primary" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
+          <div style="display:flex;gap:8px;">
+            ${editing && editing.status!=='done' ? '<button class="tt-btn tt-btn-primary" id="tt-markdone"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px;margin-right:4px;">check_circle</span>Mark done</button>' : ''}
+            <button class="tt-btn${editing ? '' : ' tt-btn-primary'}" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
+          </div>
         </div>
       </div>
     </div>`;
     document.getElementById('tt-cancel').onclick = ()=>{ layer.innerHTML=''; };
+    document.getElementById('tt-modal-close').onclick = ()=>{ layer.innerHTML=''; };
+    const markDoneBtn = document.getElementById('tt-markdone');
+    if(markDoneBtn) markDoneBtn.onclick = async ()=>{ await apiPatchTask(editing.id, { status:'done' }); layer.innerHTML=''; await loadTasks(); };
     if(editing){
       const flagBtn = document.getElementById('tt-flag-dep');
       if(flagBtn) flagBtn.onclick = async ()=>{
@@ -880,6 +1051,15 @@
   }
   document.getElementById('tt-filter-mine').addEventListener('click', ()=>{ boardFilter='mine'; updateFilterButtons(); render(); });
   document.getElementById('tt-filter-team').addEventListener('click', ()=>{ boardFilter='team'; updateFilterButtons(); render(); });
+
+  function updateViewButtons(){
+    const b = document.getElementById('tt-view-board');
+    const l = document.getElementById('tt-view-list');
+    if(b) b.classList.toggle('active', viewMode==='board');
+    if(l) l.classList.toggle('active', viewMode==='list');
+  }
+  document.getElementById('tt-view-board').addEventListener('click', ()=>{ viewMode='board'; updateViewButtons(); render(); });
+  document.getElementById('tt-view-list').addEventListener('click', ()=>{ viewMode='list'; updateViewButtons(); render(); });
 
   function openDependencyModal(taskId){
     const task = tasks.find(t=>t.id===taskId);
