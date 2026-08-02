@@ -98,31 +98,6 @@
   .tt-col__body{display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 260px);overflow-y:auto;padding-right:4px;}
   .tt-empty{font-size:13px;color:var(--ink-soft);margin:4px 2px;}
 
-  /* Compact list view */
-  .tt-list-cols{display:flex;gap:26px;align-items:flex-start;}
-  @media (max-width:900px){ .tt-list-cols{flex-direction:column;} }
-  .tt-list-col{flex:1;min-width:0;width:100%;background:rgba(255,255,255,0.5);border:1px solid rgba(255,255,255,0.65);border-radius:24px;padding:16px;box-shadow:0 1px 2px rgba(17,28,44,.04);}
-  @media (prefers-color-scheme: dark){ .tt-list-col{background:rgba(255,255,255,0.03);border-color:rgba(255,255,255,0.06);} }
-  .tt-list-col__head{display:flex;align-items:center;gap:8px;padding:6px 6px 12px;}
-  .tt-list-p{font-family:var(--font-mono);font-weight:700;color:var(--primary);font-size:13px;}
-  .tt-list-plabel{flex:1;font-family:var(--font-body);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);}
-  .tt-list-rows{display:flex;flex-direction:column;}
-  .tt-list-row{display:flex;align-items:center;gap:10px;padding:9px 6px;border-bottom:1px solid var(--line);}
-  .tt-list-row:last-child{border-bottom:0;}
-  .tt-check{background:none;border:0;padding:0;display:inline-flex;color:var(--line-strong);cursor:pointer;}
-  .tt-check .material-symbols-outlined{font-size:20px;}
-  .tt-check:hover{color:var(--primary);}
-  .tt-check-done{color:var(--teal);font-size:20px;}
-  .tt-list-title{flex:1;font-size:14px;color:var(--ink);cursor:pointer;}
-  .tt-list-title:hover{color:var(--primary);}
-  .tt-list-flag{font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--coral);background:var(--coral-bg);padding:2px 7px;border-radius:999px;}
-  .tt-history{margin-top:34px;}
-  .tt-history h3{font-family:var(--font-display);font-size:22px;color:var(--primary);margin-bottom:14px;}
-  .tt-history__day{border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:10px;background:var(--card);}
-  .tt-history__day summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-weight:600;font-size:14px;list-style:none;}
-  .tt-history__day summary::-webkit-details-marker{display:none;}
-  .tt-history__list{margin-top:10px;}
-
   /* Card */
   .tt-card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line-strong);border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(17,28,44,.05);transition:transform .3s cubic-bezier(.175,.885,.32,1.275), box-shadow .3s ease;}
   .tt-card:hover{transform:translateY(-4px);box-shadow:0 12px 24px -10px rgba(27,77,62,.20);}
@@ -239,10 +214,6 @@
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
         <div class="tt-seg">
-          <button class="tt-seg__btn active" id="tt-view-board">Board</button>
-          <button class="tt-seg__btn" id="tt-view-list">List</button>
-        </div>
-        <div class="tt-seg">
           <button class="tt-seg__btn active" id="tt-filter-mine">Assigned to me</button>
           <button class="tt-seg__btn" id="tt-filter-team">Whole team</button>
         </div>
@@ -252,7 +223,6 @@
     <div id="tt-waiting"></div>
 
     <div id="tt-board"></div>
-    <div id="tt-list" style="display:none;"></div>
 
     <section class="tt-report" id="report">
       <div class="tt-report__head">
@@ -288,7 +258,6 @@
   let users = [];
   let currentUser = null;
   let boardFilter = 'mine'; // 'mine' | 'team'
-  let viewMode = 'board'; // 'board' | 'list'
   let reportType = 'personal'; // 'personal' | 'team'
   let reportFormat = 'narrative'; // 'narrative' | 'table'
   const COLS = [
@@ -652,58 +621,8 @@
     return !t.assignedTo || (currentUser && t.assignedTo===currentUser.id);
   }
 
-  function renderList(container){
-    const PGROUPS = [
-      { label:'Must finish', prios:['urgent'] },
-      { label:'Next 48h', prios:['high'] },
-      { label:'Weekly', prios:['medium','low'] }
-    ];
-    const active = tasks.filter(t=>t.status!=='done' && matchesFilter(t));
-    let html = '<div class="tt-list-cols">';
-    PGROUPS.forEach((g,i)=>{
-      const items = active.filter(t=>g.prios.includes(priorityOf(t)))
-        .sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
-      html += `<div class="tt-list-col"><div class="tt-list-col__head"><span class="tt-list-p">P${i}</span><span class="tt-list-plabel">${g.label}</span><span class="tt-count">${items.length}</span></div><div class="tt-list-rows">`;
-      if(!items.length) html += '<p class="tt-empty" style="padding:6px;">Nothing here.</p>';
-      items.forEach(t=>{
-        const blocked = isBlocked(t) || hasExternalBlock(t);
-        html += `<div class="tt-list-row">
-          <button class="tt-check" data-check="${t.id}" title="Mark done"><span class="material-symbols-outlined">circle</span></button>
-          <span class="tt-list-title" data-open="${t.id}">${escapeHtml(t.title)}</span>
-          ${blocked?'<span class="tt-list-flag">blocked</span>':''}
-        </div>`;
-      });
-      html += '</div></div>';
-    });
-    html += '</div>';
-    // History: completed tasks grouped by date
-    const byDate = {};
-    tasks.filter(t=>t.completedAt).forEach(t=>{ const d=todayStr(new Date(t.completedAt)); (byDate[d]=byDate[d]||[]).push(t); });
-    const dates = Object.keys(byDate).sort().reverse();
-    html += '<div class="tt-history"><h3>History</h3>';
-    if(!dates.length) html += '<p class="tt-empty">No completed tasks yet.</p>';
-    dates.forEach(d=>{
-      const items = byDate[d];
-      html += `<details class="tt-history__day"><summary><span>${fmtDate(d)}</span><span class="tt-count">${items.length} done</span></summary><div class="tt-history__list">${items.map(t=>`<div class="tt-list-row"><span class="material-symbols-outlined tt-check-done">check_circle</span><span class="tt-list-title" data-open="${t.id}" style="text-decoration:line-through;color:var(--ink-soft);">${escapeHtml(t.title)}</span></div>`).join('')}</div></details>`;
-    });
-    html += '</div>';
-    container.innerHTML = html;
-    container.querySelectorAll('[data-check]').forEach(b=>{ b.onclick = async ()=>{ await apiPatchTask(b.getAttribute('data-check'), { status:'done' }); await loadTasks(); }; });
-    container.querySelectorAll('[data-open]').forEach(s=>{ s.onclick = ()=>openModal(s.getAttribute('data-open')); });
-  }
-
   function render(){
     const board = document.getElementById('tt-board');
-    const listEl = document.getElementById('tt-list');
-    if(viewMode==='list'){
-      board.style.display = 'none';
-      listEl.style.display = 'block';
-      renderList(listEl);
-      renderReportControls();
-      renderReport();
-      return;
-    }
-    listEl.style.display = 'none';
     board.style.display = 'flex';
     board.innerHTML = '';
     COLS.forEach(col=>{
@@ -1052,15 +971,6 @@
   document.getElementById('tt-filter-mine').addEventListener('click', ()=>{ boardFilter='mine'; updateFilterButtons(); render(); });
   document.getElementById('tt-filter-team').addEventListener('click', ()=>{ boardFilter='team'; updateFilterButtons(); render(); });
 
-  function updateViewButtons(){
-    const b = document.getElementById('tt-view-board');
-    const l = document.getElementById('tt-view-list');
-    if(b) b.classList.toggle('active', viewMode==='board');
-    if(l) l.classList.toggle('active', viewMode==='list');
-  }
-  document.getElementById('tt-view-board').addEventListener('click', ()=>{ viewMode='board'; updateViewButtons(); render(); });
-  document.getElementById('tt-view-list').addEventListener('click', ()=>{ viewMode='list'; updateViewButtons(); render(); });
-
   function openDependencyModal(taskId){
     const task = tasks.find(t=>t.id===taskId);
     if(!task || !task.externalDependency) return;
@@ -1293,8 +1203,8 @@
     const me = await fetch('/api/me').then(r=>r.json()).catch(()=>({ user:null }));
     currentUser = me.user;
     if(!currentUser){
-      await loadUsers();
-      showSignIn();
+      // Not signed in — hand off to the server's Google sign-in page.
+      location.href = '/login';
       return;
     }
     applyCurrentUser();

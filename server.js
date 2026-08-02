@@ -17,14 +17,21 @@ if (process.env.SENDGRID_API_KEY) {
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const PUBLIC_DIR = path.join(__dirname, 'public');
+
+// Render terminates TLS at its proxy; trust it so secure session cookies work.
+app.set('trust proxy', 1);
 
 const PRIORITY_LABELS = { urgent: 'Urgent', high: 'High', medium: 'Medium', low: 'Low' };
 function priorityOf(task) {
   return PRIORITY_LABELS[task.priority] ? task.priority : 'medium';
 }
 
+// Wrap async route handlers so rejected promises reach the error handler
+// instead of hanging the request.
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
 if (!process.env.SESSION_SECRET) {
   console.warn('[auth] SESSION_SECRET not set — using an insecure dev fallback. Set it in .env.');
@@ -33,70 +40,80 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'dev-insecure-secret-change-me',
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 30 * 24 * 60 * 60 * 1000 }
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 30 * 24 * 60 * 60 * 1000
+  }
 }));
 
-// Auth gate: everything under /api requires a signed-in user, except the
-// login/bootstrap endpoints below.
-app.use((req, res, next) => {
+// Passport + Google OAuth routes (/login, /auth/google, /auth/google/callback).
+auth.configure(app);
+
+// Page guard: any non-API page/static request from a signed-out visitor is sent
+// to the Google sign-in page. (/login and /auth/* were already registered above.)
+app.use(wrap(async (req, res, next) => {
+  if (req.method !== 'GET') return next();
+  if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path === '/login') return next();
+  if (await auth.getCurrentUser(req)) return next();
+  return res.redirect('/login');
+}));
+
+app.use(express.static(PUBLIC_DIR));
+
+// API auth gate: everything under /api requires a signed-in user, except the
+// session-probe and logout endpoints.
+app.use(wrap(async (req, res, next) => {
   if (!req.path.startsWith('/api')) return next();
-  const open = ['/api/me', '/api/login', '/api/logout', '/api/users'];
+  const open = ['/api/me', '/api/logout'];
   if (open.includes(req.path)) return next();
-  if (!auth.getCurrentUser(req)) return res.status(401).json({ error: 'Not signed in' });
+  if (!(await auth.getCurrentUser(req))) return res.status(401).json({ error: 'Not signed in' });
   next();
-});
+}));
 
 // --- Auth / users ---
 
-app.get('/api/me', (req, res) => res.json({ user: auth.getCurrentUser(req) }));
+app.get('/api/me', wrap(async (req, res) => res.json({ user: await auth.getCurrentUser(req) })));
 
-app.get('/api/users', (req, res) => res.json(dbm.getUsers()));
+app.get('/api/users', wrap(async (req, res) => res.json(await dbm.getUsers())));
 
-app.post('/api/users', (req, res) => {
+app.post('/api/users', wrap(async (req, res) => {
   const { name, email } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name is required' });
-  const user = dbm.addUser({ name, email });
-  dbm.syncPersonUserLinks();
+  const user = await dbm.addUser({ name, email });
+  await dbm.syncPersonUserLinks();
   res.status(201).json(user);
-});
+}));
 
 // Dependencies flagged on the signed-in user (they're the colleague being waited on).
-app.get('/api/waiting-on-me', (req, res) => {
-  const user = auth.getCurrentUser(req);
-  res.json(dbm.getWaitingOnUser(user.id));
-});
+app.get('/api/waiting-on-me', wrap(async (req, res) => {
+  const user = await auth.getCurrentUser(req);
+  res.json(await dbm.getWaitingOnUser(user.id));
+}));
 
-app.delete('/api/users/:id', (req, res) => {
-  if (!auth.getCurrentUser(req)) return res.status(401).json({ error: 'Not signed in' });
-  dbm.db.prepare('DELETE FROM users WHERE id = ?').run(req.params.id);
+app.delete('/api/users/:id', wrap(async (req, res) => {
+  await dbm.deleteUser(req.params.id);
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/login', (req, res) => {
-  const { userId } = req.body || {};
-  const user = dbm.getUser(userId);
-  if (!user) return res.status(400).json({ error: 'Unknown user' });
-  auth.login(req, userId);
-  res.json({ user });
-});
-
-app.post('/api/logout', async (req, res) => {
+app.post('/api/logout', wrap(async (req, res) => {
   await auth.logout(req);
   res.json({ ok: true });
-});
+}));
 
 // --- Tasks ---
 
-app.get('/api/tasks', (req, res) => {
-  res.json(dbm.getTasks());
-});
+app.get('/api/tasks', wrap(async (req, res) => {
+  res.json(await dbm.getTasks());
+}));
 
 // Granular writes (replaces the old bulk PUT, which lost concurrent edits).
-app.post('/api/tasks', (req, res) => {
-  const user = auth.getCurrentUser(req);
+app.post('/api/tasks', wrap(async (req, res) => {
+  const user = await auth.getCurrentUser(req);
   const { title, notes, priority, dependsOn, assignedTo } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title is required' });
-  const task = dbm.createTask({
+  const task = await dbm.createTask({
     title: String(title).trim(),
     notes: notes ? String(notes).trim() : '',
     priority: priority || 'medium',
@@ -109,10 +126,10 @@ app.post('/api/tasks', (req, res) => {
     chain: null
   });
   res.status(201).json({ task });
-});
+}));
 
-app.patch('/api/tasks/:id', (req, res) => {
-  const existing = dbm.getTask(req.params.id);
+app.patch('/api/tasks/:id', wrap(async (req, res) => {
+  const existing = await dbm.getTask(req.params.id);
   if (!existing) return res.status(404).json({ error: 'Task not found' });
   const b = req.body || {};
   const fields = {};
@@ -125,35 +142,35 @@ app.patch('/api/tasks/:id', (req, res) => {
     fields.status = b.status;
     fields.completedAt = b.status === 'done' ? new Date().toISOString() : null;
   }
-  const task = dbm.updateTask(req.params.id, fields);
+  const task = await dbm.updateTask(req.params.id, fields);
   res.json({ task });
-});
+}));
 
-app.delete('/api/tasks/:id', (req, res) => {
-  dbm.deleteTask(req.params.id);
+app.delete('/api/tasks/:id', wrap(async (req, res) => {
+  await dbm.deleteTask(req.params.id);
   res.json({ ok: true });
-});
+}));
 
 // --- Colleague directory ---
 
-app.get('/api/people', (req, res) => {
-  res.json(dbm.getPeople());
-});
+app.get('/api/people', wrap(async (req, res) => {
+  res.json(await dbm.getPeople());
+}));
 
-app.post('/api/people', (req, res) => {
+app.post('/api/people', wrap(async (req, res) => {
   const { name, email } = req.body || {};
   if (!name || !email) {
     return res.status(400).json({ error: 'name and email are required' });
   }
-  const person = dbm.addPerson({ name, email });
-  dbm.syncPersonUserLinks();
+  const person = await dbm.addPerson({ name, email });
+  await dbm.syncPersonUserLinks();
   res.status(201).json(person);
-});
+}));
 
-app.delete('/api/people/:id', (req, res) => {
-  const removed = dbm.deletePerson(req.params.id);
+app.delete('/api/people/:id', wrap(async (req, res) => {
+  const removed = await dbm.deletePerson(req.params.id);
   res.json({ ok: true, removed });
-});
+}));
 
 // --- Colleague dependency flags + email ---
 
@@ -214,15 +231,15 @@ async function sendDependencyEmail(person, task) {
   });
 }
 
-app.post('/api/tasks/:id/flag-dependency', async (req, res) => {
+app.post('/api/tasks/:id/flag-dependency', wrap(async (req, res) => {
   const { personId, note } = req.body || {};
-  const task = dbm.getTask(req.params.id);
+  const task = await dbm.getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  const person = dbm.getPerson(personId);
+  const person = await dbm.getPerson(personId);
   if (!person) return res.status(400).json({ error: 'Unknown colleague' });
 
   const now = new Date().toISOString();
-  dbm.setExternalDependency(task.id, {
+  await dbm.setExternalDependency(task.id, {
     personId,
     note: note ? String(note).trim() : '',
     flaggedAt: now,
@@ -230,30 +247,30 @@ app.post('/api/tasks/:id/flag-dependency', async (req, res) => {
     resolvedAt: null
   });
   // Re-read so email uses the persisted dependency.
-  let updated = dbm.getTask(task.id);
+  const updated = await dbm.getTask(task.id);
 
   let emailed = false;
   let emailError = null;
   try {
     await sendDependencyEmail(person, updated);
-    dbm.markNotified(task.id, new Date().toISOString());
+    await dbm.markNotified(task.id, new Date().toISOString());
     emailed = true;
   } catch (err) {
     emailError = err.message;
     console.error('Dependency email failed', err);
   }
 
-  res.json({ task: dbm.getTask(task.id), emailed, error: emailError });
-});
+  res.json({ task: await dbm.getTask(task.id), emailed, error: emailError });
+}));
 
-app.post('/api/tasks/:id/resolve-dependency', (req, res) => {
-  const task = dbm.getTask(req.params.id);
+app.post('/api/tasks/:id/resolve-dependency', wrap(async (req, res) => {
+  const task = await dbm.getTask(req.params.id);
   if (!task || !task.externalDependency) {
     return res.status(404).json({ error: 'No dependency to resolve' });
   }
-  const updated = dbm.resolveExternalDependency(req.params.id, new Date().toISOString());
+  const updated = await dbm.resolveExternalDependency(req.params.id, new Date().toISOString());
   res.json({ task: updated });
-});
+}));
 
 // --- Dependency chain ---
 
@@ -271,20 +288,20 @@ function normalizeStage(s) {
   };
 }
 
-app.post('/api/tasks/:id/chain', (req, res) => {
+app.post('/api/tasks/:id/chain', wrap(async (req, res) => {
   const { chain } = req.body || {};
   if (!Array.isArray(chain) || !chain.length) {
     return res.status(400).json({ error: 'chain must be a non-empty array' });
   }
-  const task = dbm.getTask(req.params.id);
+  const task = await dbm.getTask(req.params.id);
   if (!task) return res.status(404).json({ error: 'Task not found' });
-  const updated = dbm.setChain(task.id, chain.map(normalizeStage));
+  const updated = await dbm.setChain(task.id, chain.map(normalizeStage));
   res.json({ task: updated });
-});
+}));
 
-app.post('/api/tasks/:id/chain/advance', (req, res) => {
+app.post('/api/tasks/:id/chain/advance', wrap(async (req, res) => {
   const { note } = req.body || {};
-  const task = dbm.getTask(req.params.id);
+  const task = await dbm.getTask(req.params.id);
   if (!task || !Array.isArray(task.chain) || !task.chain.length) {
     return res.status(404).json({ error: 'Task has no chain' });
   }
@@ -304,12 +321,12 @@ app.post('/api/tasks/:id/chain/advance', (req, res) => {
       chain[idx + 1].startedAt = now;
     }
   }
-  const updated = dbm.setChain(task.id, chain);
+  const updated = await dbm.setChain(task.id, chain);
   res.json({ task: updated });
-});
+}));
 
-app.post('/api/tasks/:id/chain/resolve-blocker', (req, res) => {
-  const task = dbm.getTask(req.params.id);
+app.post('/api/tasks/:id/chain/resolve-blocker', wrap(async (req, res) => {
+  const task = await dbm.getTask(req.params.id);
   if (!task || !Array.isArray(task.chain)) {
     return res.status(404).json({ error: 'Task has no chain' });
   }
@@ -317,9 +334,9 @@ app.post('/api/tasks/:id/chain/resolve-blocker', (req, res) => {
   if (!stage) return res.status(400).json({ error: 'No blocked stage to resolve' });
   stage.status = 'current';
   stage.note = null;
-  const updated = dbm.setChain(task.id, task.chain);
+  const updated = await dbm.setChain(task.id, task.chain);
   res.json({ task: updated });
-});
+}));
 
 // --- Daily report (.docx) ---
 
@@ -467,14 +484,14 @@ function sendDoc(res, children, filename) {
 }
 
 // Personal report: tasks assigned to the signed-in user.
-app.get('/api/report/:date', (req, res) => {
+app.get('/api/report/:date', wrap(async (req, res) => {
   const dateStr = req.params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
   }
-  const user = auth.getCurrentUser(req);
-  const allTasks = dbm.getTasks();
-  const people = dbm.getPeople();
+  const user = await auth.getCurrentUser(req);
+  const allTasks = await dbm.getTasks();
+  const people = await dbm.getPeople();
   const mine = allTasks.filter(t => t.assignedTo === user.id);
   const { children, counts } = reportSections(mine, allTasks, people, dateStr, HeadingLevel.HEADING_2, 'you');
   const summary = `${counts.completed} task${counts.completed === 1 ? '' : 's'} completed, ` +
@@ -485,18 +502,18 @@ app.get('/api/report/:date', (req, res) => {
     ...children
   ];
   sendDoc(res, doc, `daily-report-${dateStr}.docx`);
-});
+}));
 
 // Team report: the same per-person sections, one group per user (plus any
 // unassigned tasks), concatenated under a name heading.
-app.get('/api/report/:date/team', (req, res) => {
+app.get('/api/report/:date/team', wrap(async (req, res) => {
   const dateStr = req.params.date;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
     return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
   }
-  const allTasks = dbm.getTasks();
-  const people = dbm.getPeople();
-  const groups = dbm.getUsers().map(u => ({ name: u.name, id: u.id }));
+  const allTasks = await dbm.getTasks();
+  const people = await dbm.getPeople();
+  const groups = (await dbm.getUsers()).map(u => ({ name: u.name, id: u.id }));
   groups.push({ name: 'Unassigned', id: null });
 
   const children = [
@@ -514,9 +531,24 @@ app.get('/api/report/:date/team', (req, res) => {
     sec.forEach(c => children.push(c));
   }
   sendDoc(res, children, `team-report-${dateStr}.docx`);
+}));
+
+// Central error handler for anything a wrapped async route rejects with.
+app.use((err, req, res, next) => {
+  console.error('Unhandled route error', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Server error' });
 });
 
-dbm.syncPersonUserLinks();
-app.listen(PORT, () => {
-  console.log(`Task tracker running at http://localhost:${PORT}`);
+async function start() {
+  await dbm.init();
+  await dbm.syncPersonUserLinks();
+  app.listen(PORT, () => {
+    console.log(`Task tracker running at http://localhost:${PORT}`);
+  });
+}
+
+start().catch((err) => {
+  console.error('Failed to start server', err);
+  process.exit(1);
 });
