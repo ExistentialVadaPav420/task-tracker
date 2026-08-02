@@ -60,6 +60,12 @@ const SCHEMA = `
     notified_at TEXT,
     resolved_at TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS daily_reports (
+    report_date  DATE PRIMARY KEY,
+    content      JSONB NOT NULL,
+    generated_at TIMESTAMPTZ NOT NULL
+  );
 `;
 
 async function init() {
@@ -370,6 +376,32 @@ async function getWaitingOnUser(userId) {
   return rows;
 }
 
+// --- Daily report snapshots (frozen historical records) ---
+
+async function getDailyReport(dateStr) {
+  const { rows } = await pool.query(
+    "SELECT to_char(report_date,'YYYY-MM-DD') AS report_date, content, generated_at FROM daily_reports WHERE report_date = $1",
+    [dateStr]
+  );
+  return rows[0] || null;
+}
+
+// Insert-once: an existing snapshot for a date is never overwritten.
+async function saveDailyReport(dateStr, content) {
+  await pool.query(
+    'INSERT INTO daily_reports (report_date, content, generated_at) VALUES ($1, $2::jsonb, $3) ON CONFLICT (report_date) DO NOTHING',
+    [dateStr, JSON.stringify(content), content.generatedAt || new Date().toISOString()]
+  );
+  return getDailyReport(dateStr);
+}
+
+async function getReportDates() {
+  const { rows } = await pool.query(
+    "SELECT to_char(report_date,'YYYY-MM-DD') AS d FROM daily_reports ORDER BY report_date DESC"
+  );
+  return rows.map(r => r.d);
+}
+
 module.exports = {
   pool, init, newId,
   getTasks, getTask, replaceAllTasks,
@@ -377,5 +409,6 @@ module.exports = {
   setExternalDependency, markNotified, resolveExternalDependency,
   getPeople, getPerson, addPerson, deletePerson, linkPersonToUser,
   getUsers, getUser, getUserByEmail, addUser, deleteUser,
-  syncPersonUserLinks, getWaitingOnUser
+  syncPersonUserLinks, getWaitingOnUser,
+  getDailyReport, saveDailyReport, getReportDates
 };

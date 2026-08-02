@@ -141,6 +141,11 @@
   .tt-report__head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
   .tt-report__head h2{font-size:22px;color:var(--primary);}
   .tt-report__actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .tt-hist{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
+  .tt-hist:empty{display:none;}
+  .tt-hist-label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin-right:2px;}
+  .tt-hist-chip{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);background:var(--card);color:var(--ink-soft);cursor:pointer;}
+  .tt-hist-chip:hover{border-color:var(--primary);color:var(--primary);}
   .tt-rtable{width:100%;border-collapse:collapse;font-size:13.5px;}
   .tt-rtable th{text-align:left;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);padding:0 12px 10px;border-bottom:1px solid var(--line);}
   .tt-rtable td{padding:14px 12px;border-bottom:1px solid var(--line);vertical-align:top;}
@@ -241,6 +246,7 @@
           <button class="tt-btn" id="tt-download-report">Download .docx</button>
         </div>
       </div>
+      <div id="tt-report-history" class="tt-hist"></div>
       <pre id="tt-report-box" style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;font-family:var(--font-mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--ink);margin:0;"></pre>
       <div id="tt-report-table" style="display:none;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;"></div>
       <p style="font-size:12px;color:var(--ink-soft);margin:8px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
@@ -260,6 +266,8 @@
   let boardFilter = 'mine'; // 'mine' | 'team'
   let reportType = 'personal'; // 'personal' | 'team'
   let reportFormat = 'narrative'; // 'narrative' | 'table'
+  let reportData = null;          // structured report data for the selected date (from server)
+  let reportSnapshotDates = [];   // dates that have a locked-in snapshot
   const COLS = [
     {key:'todo', label:'To do', bg:'var(--card)', border:'var(--line)'},
     {key:'inprogress', label:'In progress', bg:'var(--amber-bg)', border:'var(--amber-line)'},
@@ -659,8 +667,14 @@
     renderReport();
   }
 
-  function completionDates(){
-    const set = new Set();
+  async function loadReportDates(){
+    try{ reportSnapshotDates = await fetch('/api/reports').then(r=>r.json()); }catch(e){ reportSnapshotDates = []; }
+  }
+
+  // Selectable dates: today + any date with a completed task (so an un-snapshotted
+  // past day is still reachable to generate) + every locked-in snapshot date.
+  function allReportDates(){
+    const set = new Set(reportSnapshotDates);
     tasks.forEach(t=>{ if(t.completedAt) set.add(todayStr(new Date(t.completedAt))); });
     set.add(todayStr());
     return Array.from(set).sort().reverse();
@@ -669,9 +683,22 @@
   function renderReportControls(){
     const sel = document.getElementById('tt-report-date');
     const prev = sel.value;
-    const dates = completionDates();
+    const dates = allReportDates();
     sel.innerHTML = dates.map(d=>`<option value="${d}">${d===todayStr()?'Today · ':''}${fmtDate(d)}</option>`).join('');
     sel.value = dates.includes(prev) ? prev : todayStr();
+    renderHistoryList();
+  }
+
+  // Simple browsable list of days that have a locked-in snapshot.
+  function renderHistoryList(){
+    const el = document.getElementById('tt-report-history');
+    if(!el) return;
+    if(!reportSnapshotDates.length){ el.innerHTML=''; return; }
+    const chips = reportSnapshotDates.map(d=>`<button class="tt-hist-chip" data-hist="${d}">${fmtDate(d)}</button>`).join('');
+    el.innerHTML = `<span class="tt-hist-label">History</span>${chips}`;
+    el.querySelectorAll('[data-hist]').forEach(b=>{
+      b.onclick = ()=>{ const sel=document.getElementById('tt-report-date'); sel.value=b.getAttribute('data-hist'); renderReport(); };
+    });
   }
 
   function asSentence(note){
@@ -680,101 +707,97 @@
     return /[.!?]$/.test(s) ? s : s + '.';
   }
   function fmtShort(iso){ return new Date(iso).toLocaleDateString(undefined,{month:'short',day:'numeric'}); }
-  function externalTail(task){
-    const dep = task.externalDependency;
-    const name = personById(dep.personId)?.name || 'a colleague';
-    const status = dep.notifiedAt ? 'no response yet' : 'email not sent yet';
-    return `flagged to ${name} on ${fmtShort(dep.flaggedAt)} — ${status}`;
+  function priorityLabelOf(key){ const p = PRIORITIES.find(x=>x.key===key); return p ? p.label : key; }
+  function externalTailR(ext){
+    const status = ext.notifiedAt ? 'no response yet' : 'email not sent yet';
+    return `flagged to ${ext.personName} on ${fmtShort(ext.flaggedAt)} — ${status}`;
   }
 
-  // Completed / In progress / Blocked narrative for one subset of tasks.
-  // Dependency lookups still use the full `tasks` pool.
-  function reportSubsetText(subset, dateStr, voice){
-    const done = subset.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
-      .sort((a,b)=>a.completedAt.localeCompare(b.completedAt));
-    const blocked = subset.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)));
-    const inProgress = subset.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t));
+  // Completed / In progress / Blocked narrative from frozen server records
+  // (already classified and resolved server-side).
+  function reportSubsetText(records, voice){
+    const done = records.filter(r=>r.section==='completed').sort((a,b)=>(a.completedAt||'').localeCompare(b.completedAt||''));
+    const inProgress = records.filter(r=>r.section==='inprogress');
+    const blocked = records.filter(r=>r.section==='blocked');
     let out = '';
     out += `Completed (${done.length})\n`;
     if(done.length){
-      done.forEach(t=>{
-        let s = voice==='third' ? `At ${fmtTime(t.completedAt)}, ${t.title} was completed. ` : `At ${fmtTime(t.completedAt)}, you completed ${t.title}. `;
-        if(t.notes) s += asSentence(t.notes) + ' ';
-        const pr = priorityOf(t);
-        if(pr==='urgent'||pr==='high') s += `This was flagged ${priorityMeta(t).label}. `;
-        const dependents = tasks.filter(x=>(x.dependsOn||[]).includes(t.id));
-        if(dependents.length) s += `This unblocks: ${dependents.map(d=>d.title).join(', ')}.`;
+      done.forEach(r=>{
+        let s = voice==='third' ? `At ${fmtTime(r.completedAt)}, ${r.title} was completed. ` : `At ${fmtTime(r.completedAt)}, you completed ${r.title}. `;
+        if(r.notes) s += asSentence(r.notes) + ' ';
+        if(r.priority==='urgent'||r.priority==='high') s += `This was flagged ${priorityLabelOf(r.priority)}. `;
+        if(r.unblocks && r.unblocks.length) s += `This unblocks: ${r.unblocks.join(', ')}.`;
         out += s.trim() + '\n\n';
       });
     } else { out += 'Nothing was marked done on this date.\n\n'; }
     out += `In progress (${inProgress.length})\n`;
     if(inProgress.length){
-      inProgress.forEach(t=>{
-        let s = `${t.title} is in progress. `;
-        if(t.notes) s += asSentence(t.notes) + ' ';
-        const pr = priorityOf(t);
-        if(pr==='urgent'||pr==='high') s += `This is flagged ${priorityMeta(t).label}.`;
+      inProgress.forEach(r=>{
+        let s = `${r.title} is in progress. `;
+        if(r.notes) s += asSentence(r.notes) + ' ';
+        if(r.priority==='urgent'||r.priority==='high') s += `This is flagged ${priorityLabelOf(r.priority)}.`;
         out += s.trim() + '\n\n';
       });
     } else { out += 'Nothing is in progress.\n\n'; }
     out += `Blocked (${blocked.length})\n`;
     if(blocked.length){
-      blocked.forEach(t=>{
-        const taskBlockers = blockers(t);
+      blocked.forEach(r=>{
         let s;
-        if(taskBlockers.length){
-          s = `${t.title} is blocked, waiting on ${taskBlockers.map(b=>b.title).join(', ')}`;
-          s += hasExternalBlock(t) ? `, and ${externalTail(t)}.` : '.';
-        } else if(hasExternalBlock(t)){
-          s = `${t.title} is blocked, ${externalTail(t)}.`;
-        } else { s = `${t.title} is blocked.`; }
+        if(r.waitingOn && r.waitingOn.length){
+          s = `${r.title} is blocked, waiting on ${r.waitingOn.join(', ')}`;
+          s += r.external ? `, and ${externalTailR(r.external)}.` : '.';
+        } else if(r.external){
+          s = `${r.title} is blocked, ${externalTailR(r.external)}.`;
+        } else { s = `${r.title} is blocked.`; }
         out += s + '\n\n';
       });
     } else { out += 'Nothing is blocked.\n\n'; }
     return { text: out, counts: { done: done.length, inProgress: inProgress.length, blocked: blocked.length } };
   }
 
-  function buildReportText(dateStr){
+  function buildReportText(){
+    const rd = reportData;
+    if(!rd) return '';
     if(reportType==='team'){
-      let out = `Team report — ${fmtDate(dateStr)}\n` + '='.repeat(28) + '\n\n';
-      const groups = [...users.map(u=>({name:u.name, id:u.id})), {name:'Unassigned', id:null}];
+      let out = `Team report — ${fmtDate(rd.date)}\n` + '='.repeat(28) + '\n\n';
+      const groups = [...rd.users.map(u=>({name:u.name, id:u.id})), {name:'Unassigned', id:null}];
       groups.forEach(g=>{
-        const subset = tasks.filter(t=> g.id===null ? !t.assignedTo : t.assignedTo===g.id);
+        const subset = rd.records.filter(r=> g.id===null ? !r.assignedTo : r.assignedTo===g.id);
         if(g.id===null && !subset.length) return;
-        const { text, counts } = reportSubsetText(subset, dateStr, 'third');
+        const { text, counts } = reportSubsetText(subset, 'third');
         out += `${g.name}\n${'-'.repeat(Math.max(g.name.length,3))}\n`;
         out += `${counts.done} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.\n\n`;
         out += text + '\n';
       });
       return out.trimEnd() + '\n';
     }
-    const mine = tasks.filter(t=> currentUser && t.assignedTo===currentUser.id);
-    const { text, counts } = reportSubsetText(mine, dateStr, 'you');
-    let out = `Daily report — ${currentUser?currentUser.name:''} — ${fmtDate(dateStr)}\n`;
+    const mine = rd.records.filter(r=> currentUser && r.assignedTo===currentUser.id);
+    const { text, counts } = reportSubsetText(mine, 'you');
+    let out = `Daily report — ${currentUser?currentUser.name:''} — ${fmtDate(rd.date)}\n`;
     out += '='.repeat(28) + '\n\n';
     out += `${counts.done} task${counts.done===1?'':'s'} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.\n\n`;
     out += text;
     return out.trimEnd() + '\n';
   }
 
-  function reportScopeTasks(){
-    if(reportType==='team') return tasks.slice();
-    return tasks.filter(t=> currentUser && t.assignedTo===currentUser.id);
+  function reportScopeRecords(){
+    if(!reportData) return [];
+    if(reportType==='team') return reportData.records;
+    return reportData.records.filter(r=> currentUser && r.assignedTo===currentUser.id);
   }
-  function getReportRows(dateStr){
-    const scope = reportScopeTasks();
+  function getReportRows(){
+    const scope = reportScopeRecords();
     const rows = [];
-    scope.filter(t=>t.completedAt && todayStr(new Date(t.completedAt))===dateStr)
-      .sort((a,b)=>a.completedAt.localeCompare(b.completedAt))
-      .forEach(t=>rows.push({ subject:t.title, kind:'done', status:'Done', deps:'—' }));
-    scope.filter(t=>t.status==='inprogress' && !isBlocked(t) && !hasExternalBlock(t))
-      .forEach(t=>rows.push({ subject:t.title, kind:'progress', status:'In progress', deps:'—' }));
-    scope.filter(t=>t.status!=='done' && (isBlocked(t) || hasExternalBlock(t)))
-      .forEach(t=>{
-        const tb = blockers(t).map(b=>b.title);
-        let deps = tb.length ? ('Waiting on ' + tb.join(', ')) : '';
-        if(hasExternalBlock(t)) deps = (deps ? deps + '; ' : '') + externalTail(t);
-        rows.push({ subject:t.title, kind:'blocked', status:'Blocked', deps: deps || 'Blocked' });
+    scope.filter(r=>r.section==='completed')
+      .sort((a,b)=>(a.completedAt||'').localeCompare(b.completedAt||''))
+      .forEach(r=>rows.push({ subject:r.title, kind:'done', status:'Done', deps:'—' }));
+    scope.filter(r=>r.section==='inprogress')
+      .forEach(r=>rows.push({ subject:r.title, kind:'progress', status:'In progress', deps:'—' }));
+    scope.filter(r=>r.section==='blocked')
+      .forEach(r=>{
+        let deps = (r.waitingOn && r.waitingOn.length) ? ('Waiting on ' + r.waitingOn.join(', ')) : '';
+        if(r.external) deps = (deps ? deps + '; ' : '') + externalTailR(r.external);
+        rows.push({ subject:r.title, kind:'blocked', status:'Blocked', deps: deps || 'Blocked' });
       });
     return rows;
   }
@@ -782,8 +805,8 @@
     const icon = kind==='done' ? 'check_circle' : (kind==='blocked' ? 'error' : 'pending');
     return `<span class="material-symbols-outlined">${icon}</span>`;
   }
-  function renderReportTableHTML(dateStr){
-    const rows = getReportRows(dateStr);
+  function renderReportTableHTML(){
+    const rows = getReportRows();
     if(!rows.length) return '<p class="tt-empty" style="padding:12px;">Nothing to report for this date.</p>';
     const body = rows.map(r=>`<tr>
       <td class="tt-rt-subject">${escapeHtml(r.subject)}</td>
@@ -792,26 +815,40 @@
     </tr>`).join('');
     return `<table class="tt-rtable"><thead><tr><th>Task Subject</th><th>Status</th><th>Dependencies or Blockers</th></tr></thead><tbody>${body}</tbody></table>`;
   }
-  function buildReportTableText(dateStr){
-    const rows = getReportRows(dateStr);
-    let out = `Report — ${fmtDate(dateStr)}\n\n`;
+  function buildReportTableText(){
+    const rows = getReportRows();
+    let out = `Report — ${fmtDate(reportData ? reportData.date : todayStr())}\n\n`;
     if(!rows.length) return out + 'Nothing to report for this date.\n';
     rows.forEach(r=>{ out += `- [${r.status}] ${r.subject}${(r.deps && r.deps!=='—') ? ' — ' + r.deps : ''}\n`; });
     return out;
   }
 
-  function renderReport(){
+  // Load the (possibly frozen) snapshot for a date. Frozen snapshots are cached;
+  // a non-frozen result (today) is always refetched so it stays live.
+  async function ensureReportData(dateStr){
+    if(reportData && reportData.date===dateStr && reportData.frozen) return;
+    try{
+      reportData = await fetch(`/api/report-data/${dateStr}`).then(r=>r.json());
+    }catch(e){ reportData = { date: dateStr, users: [], records: [], frozen: false }; }
+    if(reportData.frozen && !reportSnapshotDates.includes(dateStr)){
+      await loadReportDates();
+      renderHistoryList();
+    }
+  }
+
+  async function renderReport(){
     const dateStr = document.getElementById('tt-report-date').value || todayStr();
+    await ensureReportData(dateStr);
     const pre = document.getElementById('tt-report-box');
     const tbl = document.getElementById('tt-report-table');
     if(reportFormat==='table'){
       pre.style.display = 'none';
       tbl.style.display = 'block';
-      tbl.innerHTML = renderReportTableHTML(dateStr);
+      tbl.innerHTML = renderReportTableHTML();
     } else {
       tbl.style.display = 'none';
       pre.style.display = 'block';
-      pre.textContent = buildReportText(dateStr);
+      pre.textContent = buildReportText();
     }
   }
 
@@ -820,7 +857,7 @@
   document.getElementById('tt-report-format').addEventListener('change', (e)=>{ reportFormat = e.target.value; renderReport(); });
   document.getElementById('tt-copy-report').addEventListener('click', ()=>{
     const dateStr = document.getElementById('tt-report-date').value || todayStr();
-    const text = reportFormat==='table' ? buildReportTableText(dateStr) : document.getElementById('tt-report-box').textContent;
+    const text = reportFormat==='table' ? buildReportTableText() : document.getElementById('tt-report-box').textContent;
     navigator.clipboard.writeText(text).then(()=>{
       const btn = document.getElementById('tt-copy-report');
       const orig = btn.textContent; btn.textContent='Copied';
@@ -1210,6 +1247,7 @@
     applyCurrentUser();
     await loadUsers();
     await loadPeople();
+    await loadReportDates();
     await loadTasks();
     await loadWaitingOnMe();
   }

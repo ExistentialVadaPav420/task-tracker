@@ -391,81 +391,136 @@ function reportPara(children) {
   return new Paragraph({ children, spacing: { after: 160 } });
 }
 
-function completedPara(task, tasks, voice) {
-  const runs = voice === 'third'
-    ? [ new TextRun(`At ${fmtTime(task.completedAt)}, `), new TextRun({ text: task.title, bold: true }), new TextRun(' was completed. ') ]
-    : [ new TextRun(`At ${fmtTime(task.completedAt)}, you completed `), new TextRun({ text: task.title, bold: true }), new TextRun('. ') ];
-  const note = asSentence(task.notes);
-  if (note) runs.push(new TextRun(note + ' '));
-  const pr = priorityOf(task);
-  if (pr === 'urgent' || pr === 'high') {
-    runs.push(new TextRun(`This was flagged ${PRIORITY_LABELS[pr]}. `));
+// Today's local date, using the same day boundary as localDateStr / the frontend.
+function todayStr() {
+  return localDateStr(new Date().toISOString());
+}
+
+// Resolve every task relevant to `dateStr` into a frozen, self-contained record:
+// its section, notes/priority, and resolved blocker/unblock text as they stand
+// right now — so a stored snapshot never has to look tasks up again (and can't be
+// changed by later edits to those tasks).
+function computeReportData(dateStr, allTasks, people, users) {
+  const records = [];
+  for (const t of allTasks) {
+    const completedOnDate = t.completedAt && localDateStr(t.completedAt) === dateStr;
+    const blocked = t.status !== 'done' && (isBlocked(t, allTasks) || hasExternalBlock(t));
+    const inProgress = t.status === 'inprogress' && !isBlocked(t, allTasks) && !hasExternalBlock(t);
+    let section = null;
+    if (completedOnDate) section = 'completed';
+    else if (blocked) section = 'blocked';
+    else if (inProgress) section = 'inprogress';
+    if (!section) continue;
+
+    const rec = {
+      id: t.id, title: t.title, notes: t.notes || '', priority: priorityOf(t),
+      assignedTo: t.assignedTo || null, completedAt: t.completedAt || null,
+      section, unblocks: [], waitingOn: [], external: null
+    };
+    if (section === 'completed') {
+      rec.unblocks = allTasks.filter(x => (x.dependsOn || []).includes(t.id)).map(x => x.title);
+    } else if (section === 'blocked') {
+      rec.waitingOn = blockers(t, allTasks).map(b => b.title);
+      if (hasExternalBlock(t)) {
+        const dep = t.externalDependency;
+        rec.external = {
+          personName: personName(dep.personId, people),
+          flaggedAt: dep.flaggedAt,
+          notifiedAt: dep.notifiedAt
+        };
+      }
+    }
+    records.push(rec);
   }
-  const dependents = tasks.filter(t => (t.dependsOn || []).includes(task.id));
-  if (dependents.length) {
-    runs.push(new TextRun(`This unblocks: ${dependents.map(d => d.title).join(', ')}.`));
+  return {
+    date: dateStr,
+    generatedAt: new Date().toISOString(),
+    users: users.map(u => ({ id: u.id, name: u.name })),
+    records
+  };
+}
+
+// Serve a date's report data. A past date locks in on first request (snapshot);
+// today stays live/recomputed until it's no longer today.
+async function getOrCreateReportData(dateStr) {
+  const existing = await dbm.getDailyReport(dateStr);
+  if (existing) return { content: existing.content, frozen: true };
+  const [allTasks, people, users] = await Promise.all([dbm.getTasks(), dbm.getPeople(), dbm.getUsers()]);
+  const content = computeReportData(dateStr, allTasks, people, users);
+  if (dateStr < todayStr()) {
+    const saved = await dbm.saveDailyReport(dateStr, content);
+    return { content: saved ? saved.content : content, frozen: true };
+  }
+  return { content, frozen: false };
+}
+
+// --- Narrative .docx rendering, from frozen records ---
+
+function completedPara(rec, voice) {
+  const runs = voice === 'third'
+    ? [ new TextRun(`At ${fmtTime(rec.completedAt)}, `), new TextRun({ text: rec.title, bold: true }), new TextRun(' was completed. ') ]
+    : [ new TextRun(`At ${fmtTime(rec.completedAt)}, you completed `), new TextRun({ text: rec.title, bold: true }), new TextRun('. ') ];
+  const note = asSentence(rec.notes);
+  if (note) runs.push(new TextRun(note + ' '));
+  if (rec.priority === 'urgent' || rec.priority === 'high') {
+    runs.push(new TextRun(`This was flagged ${PRIORITY_LABELS[rec.priority]}. `));
+  }
+  if (rec.unblocks && rec.unblocks.length) {
+    runs.push(new TextRun(`This unblocks: ${rec.unblocks.join(', ')}.`));
   }
   return reportPara(runs);
 }
 
-function inProgressPara(task) {
+function inProgressPara(rec) {
   const runs = [
-    new TextRun({ text: task.title, bold: true }),
+    new TextRun({ text: rec.title, bold: true }),
     new TextRun(' is in progress. ')
   ];
-  const note = asSentence(task.notes);
+  const note = asSentence(rec.notes);
   if (note) runs.push(new TextRun(note + ' '));
-  const pr = priorityOf(task);
-  if (pr === 'urgent' || pr === 'high') {
-    runs.push(new TextRun(`This is flagged ${PRIORITY_LABELS[pr]}.`));
+  if (rec.priority === 'urgent' || rec.priority === 'high') {
+    runs.push(new TextRun(`This is flagged ${PRIORITY_LABELS[rec.priority]}.`));
   }
   return reportPara(runs);
 }
 
-function externalTail(task, people) {
-  const dep = task.externalDependency;
-  const status = dep.notifiedAt ? 'no response yet' : 'email not sent yet';
-  return `flagged to ${personName(dep.personId, people)} on ${fmtShortDate(dep.flaggedAt)} — ${status}`;
+function externalTail(ext) {
+  const status = ext.notifiedAt ? 'no response yet' : 'email not sent yet';
+  return `flagged to ${ext.personName} on ${fmtShortDate(ext.flaggedAt)} — ${status}`;
 }
 
-function blockedPara(task, tasks, people) {
-  const runs = [new TextRun({ text: task.title, bold: true })];
-  const taskBlockers = blockers(task, tasks);
-  if (taskBlockers.length) {
+function blockedPara(rec) {
+  const runs = [new TextRun({ text: rec.title, bold: true })];
+  if (rec.waitingOn && rec.waitingOn.length) {
     runs.push(new TextRun(' is blocked, waiting on '));
-    runs.push(new TextRun({ text: taskBlockers.map(b => b.title).join(', '), bold: true }));
-    if (hasExternalBlock(task)) {
-      runs.push(new TextRun(`, and ${externalTail(task, people)}.`));
-    } else {
-      runs.push(new TextRun('.'));
-    }
-  } else if (hasExternalBlock(task)) {
-    runs.push(new TextRun(` is blocked, ${externalTail(task, people)}.`));
+    runs.push(new TextRun({ text: rec.waitingOn.join(', '), bold: true }));
+    runs.push(new TextRun(rec.external ? `, and ${externalTail(rec.external)}.` : '.'));
+  } else if (rec.external) {
+    runs.push(new TextRun(` is blocked, ${externalTail(rec.external)}.`));
   } else {
     runs.push(new TextRun(' is blocked.'));
   }
   return reportPara(runs);
 }
 
-// Build the Completed / In progress / Blocked sections for a set of tasks.
-function reportSections(tasks, allTasks, people, dateStr, headingLevel, voice) {
-  const completed = tasks
-    .filter(t => t.completedAt && localDateStr(t.completedAt) === dateStr)
-    .sort((a, b) => a.completedAt.localeCompare(b.completedAt));
-  const blocked = tasks.filter(t => t.status !== 'done' && (isBlocked(t, allTasks) || hasExternalBlock(t)));
-  const inProgress = tasks.filter(t => t.status === 'inprogress' && !isBlocked(t, allTasks) && !hasExternalBlock(t));
+// Build the Completed / In progress / Blocked docx sections from a set of records.
+function reportSections(records, headingLevel, voice) {
+  const completed = records.filter(r => r.section === 'completed')
+    .sort((a, b) => (a.completedAt || '').localeCompare(b.completedAt || ''));
+  const inProgress = records.filter(r => r.section === 'inprogress');
+  const blocked = records.filter(r => r.section === 'blocked');
 
   const children = [];
   children.push(new Paragraph({ text: `Completed (${completed.length})`, heading: headingLevel }));
-  if (completed.length) completed.forEach(t => children.push(completedPara(t, allTasks, voice)));
+  if (completed.length) completed.forEach(r => children.push(completedPara(r, voice)));
   else children.push(reportPara([new TextRun('Nothing was marked done on this date.')]));
 
   children.push(new Paragraph({ text: `In progress (${inProgress.length})`, heading: headingLevel }));
-  if (inProgress.length) inProgress.forEach(t => children.push(inProgressPara(t)));
+  if (inProgress.length) inProgress.forEach(r => children.push(inProgressPara(r)));
   else children.push(reportPara([new TextRun('Nothing is in progress.')]));
 
   children.push(new Paragraph({ text: `Blocked (${blocked.length})`, heading: headingLevel }));
-  if (blocked.length) blocked.forEach(t => children.push(blockedPara(t, allTasks, people)));
+  if (blocked.length) blocked.forEach(r => children.push(blockedPara(r)));
   else children.push(reportPara([new TextRun('Nothing is blocked.')]));
 
   return { children, counts: { completed: completed.length, inProgress: inProgress.length, blocked: blocked.length } };
@@ -483,17 +538,17 @@ function sendDoc(res, children, filename) {
   });
 }
 
-// Personal report: tasks assigned to the signed-in user.
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Personal report (.docx): records assigned to the signed-in user, from the
+// (possibly frozen) snapshot for that date.
 app.get('/api/report/:date', wrap(async (req, res) => {
   const dateStr = req.params.date;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
-  }
+  if (!DATE_RE.test(dateStr)) return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
   const user = await auth.getCurrentUser(req);
-  const allTasks = await dbm.getTasks();
-  const people = await dbm.getPeople();
-  const mine = allTasks.filter(t => t.assignedTo === user.id);
-  const { children, counts } = reportSections(mine, allTasks, people, dateStr, HeadingLevel.HEADING_2, 'you');
+  const { content } = await getOrCreateReportData(dateStr);
+  const mine = content.records.filter(r => r.assignedTo === user.id);
+  const { children, counts } = reportSections(mine, HeadingLevel.HEADING_2, 'you');
   const summary = `${counts.completed} task${counts.completed === 1 ? '' : 's'} completed, ` +
     `${counts.inProgress} in progress, ${counts.blocked} blocked.`;
   const doc = [
@@ -504,25 +559,22 @@ app.get('/api/report/:date', wrap(async (req, res) => {
   sendDoc(res, doc, `daily-report-${dateStr}.docx`);
 }));
 
-// Team report: the same per-person sections, one group per user (plus any
-// unassigned tasks), concatenated under a name heading.
+// Team report (.docx): one group per user (from the snapshot's own user list, so
+// history stays intact if a user is removed later) plus any unassigned tasks.
 app.get('/api/report/:date/team', wrap(async (req, res) => {
   const dateStr = req.params.date;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
-  }
-  const allTasks = await dbm.getTasks();
-  const people = await dbm.getPeople();
-  const groups = (await dbm.getUsers()).map(u => ({ name: u.name, id: u.id }));
+  if (!DATE_RE.test(dateStr)) return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+  const { content } = await getOrCreateReportData(dateStr);
+  const groups = content.users.map(u => ({ name: u.name, id: u.id }));
   groups.push({ name: 'Unassigned', id: null });
 
   const children = [
     new Paragraph({ text: `Team Report — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 })
   ];
   for (const g of groups) {
-    const groupTasks = allTasks.filter(t => (g.id === null ? !t.assignedTo : t.assignedTo === g.id));
-    if (g.id === null && !groupTasks.length) continue;
-    const { children: sec, counts } = reportSections(groupTasks, allTasks, people, dateStr, HeadingLevel.HEADING_3, 'third');
+    const recs = content.records.filter(r => (g.id === null ? !r.assignedTo : r.assignedTo === g.id));
+    if (g.id === null && !recs.length) continue;
+    const { children: sec, counts } = reportSections(recs, HeadingLevel.HEADING_3, 'third');
     children.push(new Paragraph({ text: g.name, heading: HeadingLevel.HEADING_2, spacing: { before: 200, after: 40 } }));
     children.push(new Paragraph({
       children: [new TextRun({ text: `${counts.completed} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.` })],
@@ -531,6 +583,19 @@ app.get('/api/report/:date/team', wrap(async (req, res) => {
     sec.forEach(c => children.push(c));
   }
   sendDoc(res, children, `team-report-${dateStr}.docx`);
+}));
+
+// Structured report data for the on-screen preview (same snapshot the .docx uses).
+app.get('/api/report-data/:date', wrap(async (req, res) => {
+  const dateStr = req.params.date;
+  if (!DATE_RE.test(dateStr)) return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
+  const { content, frozen } = await getOrCreateReportData(dateStr);
+  res.json({ ...content, frozen });
+}));
+
+// Dates that have a locked-in snapshot, newest first (for the history list).
+app.get('/api/reports', wrap(async (req, res) => {
+  res.json(await dbm.getReportDates());
 }));
 
 // Central error handler for anything a wrapped async route rejects with.
@@ -543,12 +608,16 @@ app.use((err, req, res, next) => {
 async function start() {
   await dbm.init();
   await dbm.syncPersonUserLinks();
-  app.listen(PORT, () => {
+  return app.listen(PORT, () => {
     console.log(`Task tracker running at http://localhost:${PORT}`);
   });
 }
 
-start().catch((err) => {
-  console.error('Failed to start server', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  start().catch((err) => {
+    console.error('Failed to start server', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { app, start };
