@@ -1,0 +1,34 @@
+# Render blueprint for Zephyr. Connect this repo as a Blueprint in the Render
+# dashboard and it will read this file to provision the web service and prompt
+# for each secret (sync: false). No real values live here — never commit secrets.
+services:
+  - type: web
+    name: zephyr
+    env: node
+    plan: free
+    # Deploy the feature branch for tonight's launch. After it's confirmed,
+    # merge to main and change this to `main`.
+    branch: feature/design-polish-dependency-chain
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        sync: false          # Internal Database URL from your Render Postgres instance
+      - key: NODE_ENV
+        value: production
+      - key: BASE_URL
+        sync: false          # Set to the live https://<app>.onrender.com URL after first deploy
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ALLOWED_EMAILS
+        sync: false          # Optional: comma-separated allowlist of sign-in emails
+      - key: SENDGRID_API_KEY
+        sync: false
+      - key: FROM_EMAIL
+        sync: false
+      - key: FROM_NAME
+        sync: false
