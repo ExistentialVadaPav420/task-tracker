@@ -32,8 +32,12 @@ async function requireAuth(req, res, next) {
 function emailAllowed(email) {
   const raw = (process.env.ALLOWED_EMAILS || '').trim();
   if (!raw) return true;
-  const allow = raw.split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
-  return allow.includes(String(email).toLowerCase());
+  const target = dbm.normalizeEmail(email);
+  if (!target) return false;
+  // Normalize both sides so a dotted/dotless Gmail in either the allowlist or the
+  // Google-supplied email still matches.
+  const allow = raw.split(',').map(s => dbm.normalizeEmail(s)).filter(Boolean);
+  return allow.includes(target);
 }
 
 function loginPage(req) {

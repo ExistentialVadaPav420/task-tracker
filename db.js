@@ -321,6 +321,20 @@ function mapUser(u) {
   return u ? { id: u.id, name: u.name, email: u.email, createdAt: u.created_at } : null;
 }
 
+// Canonical form for matching. Gmail ignores dots and +tags and treats
+// googlemail.com as gmail.com, so two "different" strings can be the same inbox.
+// Used for sign-in allowlisting and for linking colleagues <-> users by email.
+function normalizeEmail(email) {
+  const raw = String(email || '').trim().toLowerCase();
+  const at = raw.lastIndexOf('@');
+  if (at === -1) return raw;
+  let local = raw.slice(0, at);
+  let domain = raw.slice(at + 1);
+  if (domain === 'googlemail.com') domain = 'gmail.com';
+  if (domain === 'gmail.com') local = local.split('+')[0].replace(/\./g, '');
+  return `${local}@${domain}`;
+}
+
 async function getUsers() {
   const { rows } = await pool.query('SELECT * FROM users ORDER BY name');
   return rows.map(mapUser);
@@ -331,8 +345,12 @@ async function getUser(id) {
 }
 async function getUserByEmail(email) {
   if (!email) return null;
-  const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(email) = LOWER($1) LIMIT 1', [email]);
-  return mapUser(rows[0]);
+  const target = normalizeEmail(email);
+  if (!target) return null;
+  // Compare on the normalized form so a dotted/dotless Gmail still matches.
+  const { rows } = await pool.query('SELECT * FROM users WHERE email IS NOT NULL');
+  const match = rows.find(u => normalizeEmail(u.email) === target);
+  return mapUser(match || null);
 }
 async function addUser({ name, email }) {
   const id = newId('u');
@@ -352,10 +370,10 @@ async function deleteUser(id) {
 async function syncPersonUserLinks() {
   return withTx(async (client) => {
     const users = (await client.query("SELECT id, email FROM users WHERE email IS NOT NULL AND email != ''")).rows;
-    const byEmail = new Map(users.map(u => [u.email.toLowerCase(), u.id]));
+    const byEmail = new Map(users.map(u => [normalizeEmail(u.email), u.id]));
     const people = (await client.query('SELECT id, email FROM people')).rows;
     for (const p of people) {
-      const uid = p.email ? byEmail.get(p.email.toLowerCase()) : null;
+      const uid = p.email ? byEmail.get(normalizeEmail(p.email)) : null;
       if (uid) await client.query('UPDATE people SET is_app_user = TRUE, linked_user_id = $1 WHERE id = $2', [uid, p.id]);
       else await client.query('UPDATE people SET is_app_user = FALSE, linked_user_id = NULL WHERE id = $1', [p.id]);
     }
@@ -408,7 +426,7 @@ module.exports = {
   createTask, updateTask, deleteTask, setChain,
   setExternalDependency, markNotified, resolveExternalDependency,
   getPeople, getPerson, addPerson, deletePerson, linkPersonToUser,
-  getUsers, getUser, getUserByEmail, addUser, deleteUser,
+  getUsers, getUser, getUserByEmail, addUser, deleteUser, normalizeEmail,
   syncPersonUserLinks, getWaitingOnUser,
   getDailyReport, saveDailyReport, getReportDates
 };
