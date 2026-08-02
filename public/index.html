@@ -99,7 +99,7 @@
   .tt-empty{font-size:13px;color:var(--ink-soft);margin:4px 2px;}
 
   /* Card */
-  .tt-card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line-strong);border-radius:16px;padding:18px;box-shadow:0 1px 2px rgba(17,28,44,.05);transition:transform .3s cubic-bezier(.175,.885,.32,1.275), box-shadow .3s ease;}
+  .tt-card{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--line-strong);border-radius:14px;padding:11px 12px;box-shadow:0 1px 2px rgba(17,28,44,.05);cursor:pointer;transition:transform .3s cubic-bezier(.175,.885,.32,1.275), box-shadow .3s ease;}
   .tt-card:hover{transform:translateY(-4px);box-shadow:0 12px 24px -10px rgba(27,77,62,.20);}
   .tt-card--done{background:var(--slate-bg);opacity:.7;border-left-color:var(--line);border-left-width:1px;filter:grayscale(1);}
   .tt-card--done:hover{opacity:1;filter:grayscale(0);}
@@ -107,7 +107,7 @@
   .tt-card__id{font-family:var(--font-mono);font-size:11px;letter-spacing:.05em;color:var(--ink-soft);}
   .tt-card__more{background:none;border:0;padding:0;color:var(--line-strong);display:inline-flex;}
   .tt-card__more:hover{color:var(--primary);}
-  .tt-card__title{font-size:16px;font-weight:700;line-height:1.3;margin:0 0 10px;}
+  .tt-card__title{font-size:14px;font-weight:650;line-height:1.3;margin:0 0 7px;}
   .tt-card--done .tt-card__title{text-decoration:line-through;color:var(--ink-soft);}
   .tt-card__notes{font-size:13.5px;color:var(--ink-soft);line-height:1.5;margin:0 0 12px;}
   .tt-tags{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px;}
@@ -117,6 +117,35 @@
   .tt-callout__body{font-size:12.5px;color:var(--coral);line-height:1.4;}
   .tt-card__meta{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:var(--ink-soft);border-top:1px solid var(--line);padding-top:12px;margin-top:2px;}
   .tt-card__controls{display:flex;gap:6px;flex-wrap:wrap;margin-top:14px;}
+  /* Compact card meta row */
+  .tt-card__row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .tt-mini{display:inline-flex;align-items:center;gap:3px;font-size:11px;color:var(--ink-soft);}
+  .tt-mini--who{color:var(--ink);font-weight:600;}
+  .tt-mini--blocked{color:var(--coral);font-weight:600;}
+  .tt-mini--wait{color:#6b3fc0;}
+  .tt-mini--chain{color:var(--amber);}
+  .tt-mini--done{color:var(--teal);}
+  /* Detail popup */
+  .tt-detail-title{font-size:20px;font-weight:700;line-height:1.25;margin:0;padding-right:8px;}
+  .tt-detail-badges{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0 2px;}
+  .tt-detail-id{font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;color:var(--ink-soft);margin-top:16px;text-align:right;}
+  .tt-secn-label{font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:18px 0 8px;}
+  .tt-status-btns{display:flex;gap:8px;}
+  .tt-status-btn{flex:1;justify-content:center;font-size:13px;padding:9px 8px;}
+  .tt-btn.tt-status-btn--active{background:var(--primary);border-color:var(--primary);color:var(--pill-text);font-weight:600;cursor:default;}
+  .tt-dep-view{display:flex;flex-direction:column;gap:8px;}
+  .tt-dep-chip{display:flex;flex-direction:column;gap:3px;border-radius:10px;padding:9px 11px;font-size:13px;}
+  .tt-dep-chip__head{display:flex;align-items:center;gap:6px;font-weight:600;}
+  .tt-dep-chip__note{font-size:12px;font-style:italic;opacity:.92;}
+  .tt-dep-chip--blocked{background:var(--coral-bg);color:var(--coral);}
+  .tt-dep-chip--wait{background:#efe7fb;color:#6b3fc0;}
+  .tt-dep-chip--clear{background:var(--teal-bg);color:var(--teal);}
+  .tt-dep-chip__actions{margin-top:5px;}
+  .tt-more{margin-top:12px;border-top:1px solid var(--line);padding-top:6px;}
+  .tt-more>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--primary);list-style:none;display:flex;align-items:center;gap:6px;padding:8px 0;}
+  .tt-more>summary::-webkit-details-marker{display:none;}
+  .tt-more>summary::before{content:'▸';font-size:11px;transition:transform .15s ease;}
+  .tt-more[open]>summary::before{transform:rotate(90deg);}
 
   /* Buttons / inputs / chips */
   .tt-btn{background:var(--card);border:1px solid var(--line-strong);border-radius:12px;padding:8px 14px;font-family:var(--font-body);font-size:13px;font-weight:500;color:var(--ink);transition:transform .1s ease, background .12s ease, border-color .12s ease, opacity .12s ease;}
@@ -525,98 +554,91 @@
     card.className = 'tt-card' + (isDone ? ' tt-card--done' : '');
     if(!isDone) card.style.borderLeftColor = PRIORITY_BORDER_COLORS[task.priority||'medium'];
 
-    const shortId = 'TL-' + task.id.slice(-4).toUpperCase();
-    let html = `<div class="tt-card__top">`
-      + `<span class="tt-card__id">${shortId}</span>`
-      + (isDone
-          ? `<span class="material-symbols-outlined" style="color:var(--teal);font-size:18px;">check_circle</span>`
-          : `<button class="tt-card__more" data-edit="1" title="Edit"><span class="material-symbols-outlined" style="font-size:18px;">more_horiz</span></button>`)
-      + `</div>`;
-    html += `<p class="tt-card__title">${escapeHtml(task.title)}</p>`;
-    if(task.notes) html += `<p class="tt-card__notes">${escapeHtml(task.notes)}</p>`;
+    // Minimal face: title + a single compact meta row. Everything else lives in
+    // the detail popup (opened by clicking the card).
     const assignedToMe = currentUser && task.assignedTo === currentUser.id;
-    html += `<div class="tt-tags">`
-      + `<span class="tt-tag" style="border-color:${prio.color};color:${prio.color};background:transparent;">${prio.label}</span>`
-      + `<span class="tt-tag"${assignedToMe?' style="border-color:var(--ink);color:var(--ink);"':''}>${assignedToMe?'You':escapeHtml(assigneeName(task))}</span>`
-      + (!blocked && (task.dependsOn||[]).length ? `<span class="tt-tag" style="border-color:var(--teal);color:var(--teal);background:transparent;">Deps clear</span>` : '')
-      + `</div>`;
-    if(blocked){
-      html += `<div class="tt-callout"><div class="tt-callout__label">Blocked by</div><div class="tt-callout__body">${blockList.map(b=>escapeHtml(b.title)).join(', ')}</div></div>`;
+    const ext = hasExternalBlock(task) ? task.externalDependency : null;
+    const chain = Array.isArray(task.chain) && task.chain.length ? task.chain : null;
+    let html = `<p class="tt-card__title">${escapeHtml(task.title)}</p>`;
+    const bits = [`<span class="tt-mini tt-mini--who"><span class="material-symbols-outlined" style="font-size:14px;">person</span>${assignedToMe?'You':escapeHtml(assigneeName(task))}</span>`];
+    if(isDone){
+      bits.push(`<span class="tt-mini tt-mini--done"><span class="material-symbols-outlined" style="font-size:14px;">check_circle</span>Done</span>`);
+    } else {
+      if(blocked) bits.push(`<span class="tt-mini tt-mini--blocked"><span class="material-symbols-outlined" style="font-size:14px;">block</span>Blocked</span>`);
+      if(ext){ const p = personById(ext.personId); bits.push(`<span class="tt-mini tt-mini--wait">⏳ ${escapeHtml(p?p.name:'colleague')}</span>`); }
+      if(chain){ const dc = chain.filter(s=>s.status==='done').length; bits.push(`<span class="tt-mini tt-mini--chain">⛓ ${dc}/${chain.length}</span>`); }
     }
-    if(isDone && task.completedAt){
-      const when = todayStr(new Date(task.completedAt))===todayStr() ? 'today' : fmtDate(todayStr(new Date(task.completedAt)));
-      html += `<div class="tt-card__meta"><span class="material-symbols-outlined" style="font-size:15px;">schedule</span>Done ${fmtTime(task.completedAt)} · ${when}</div>`;
-    }
+    html += `<div class="tt-card__row">${bits.join('')}</div>`;
     card.innerHTML = html;
 
-    const moreBtn = card.querySelector('[data-edit]');
-    if(moreBtn) moreBtn.onclick = ()=>openModal(task.id);
-
-    if(hasExternalBlock(task)){
-      const person = personById(task.externalDependency.personId);
-      const chip = document.createElement('button');
-      chip.className = 'tt-chip';
-      chip.style.cssText = 'background:#efe7fb;color:#6b3fc0;border:1px solid #b79ce8;margin-bottom:10px;cursor:pointer;';
-      chip.textContent = `⏳ waiting on ${person ? person.name : 'a colleague'}`;
-      chip.onclick = ()=>openDependencyModal(task.id);
-      card.appendChild(chip);
-      card.appendChild(document.createElement('br'));
-    }
-
-    if(Array.isArray(task.chain) && task.chain.length){
-      const doneCount = task.chain.filter(s=>s.status==='done').length;
-      const active = task.chain.find(s=>s.status==='current' || s.status==='blocked');
-      const who = active ? `${stageName(active)} has it${active.status==='blocked'?' — blocked':''}` : 'complete';
-      const summary = document.createElement('button');
-      summary.className='tt-btn';
-      summary.style.cssText='font-size:11px;padding:4px 8px;margin-bottom:6px;display:block;width:100%;text-align:left;';
-      summary.textContent = `⛓ Chain ${doneCount}/${task.chain.length} · ${who}`;
-      const barWrap = document.createElement('div');
-      barWrap.style.cssText='display:none;margin-bottom:6px;';
-      summary.onclick=()=>{
-        const open = barWrap.style.display!=='none';
-        barWrap.style.display = open ? 'none' : 'block';
-        if(!open){ barWrap.innerHTML=''; barWrap.appendChild(renderChainBar(task)); }
-      };
-      card.appendChild(summary);
-      card.appendChild(barWrap);
-    }
-
-    const controls = document.createElement('div');
-    controls.className = 'tt-card__controls';
-    COLS.forEach(c=>{
-      if(c.key===task.status) return;
-      const b = document.createElement('button');
-      b.className='tt-btn';
-      b.style.cssText='font-size:11px;padding:4px 8px;';
-      b.textContent = (task.status==='done' && c.key==='todo') ? '↺ Reopen' : ('→ ' + c.label);
-      if(c.key==='done' && blocked){
-        b.title = 'Still blocked by an unfinished dependency';
-        b.style.opacity='0.55';
-      }
-      b.onclick = async ()=>{
-        await apiPatchTask(task.id, { status: c.key });
-        await loadTasks();
-      };
-      controls.appendChild(b);
-    });
-    const edit = document.createElement('button');
-    edit.className='tt-btn';
-    edit.style.cssText='font-size:11px;padding:4px 8px;';
-    edit.textContent='Edit';
-    edit.onclick = ()=>openModal(task.id);
-    controls.appendChild(edit);
-    const del = document.createElement('button');
-    del.className='tt-btn tt-danger';
-    del.style.cssText='font-size:11px;padding:4px 8px;';
-    del.textContent='Remove';
-    del.onclick = async ()=>{
-      await apiDeleteTask(task.id);
-      await loadTasks();
-    };
-    controls.appendChild(del);
-    card.appendChild(controls);
+    card.onclick = ()=>openModal(task.id);
     return card;
+  }
+
+  // Scannable dependency view for the detail popup — reuses the chain-tracker
+  // visual language (colored nodes, inline "waiting on X" with the note visible).
+  function renderDependencyView(task){
+    const wrap = document.createElement('div');
+    wrap.className = 'tt-dep-view';
+    const blist = blockers(task);
+    const deps = task.dependsOn || [];
+    const ext = hasExternalBlock(task) ? task.externalDependency : null;
+    const chain = Array.isArray(task.chain) && task.chain.length ? task.chain : null;
+    let any = false;
+
+    if(blist.length){
+      any = true;
+      blist.forEach(b=>{
+        const c = document.createElement('div');
+        c.className = 'tt-dep-chip tt-dep-chip--blocked';
+        c.innerHTML = `<div class="tt-dep-chip__head"><span class="material-symbols-outlined" style="font-size:16px;">block</span>Waiting on <strong>${escapeHtml(b.title)}</strong></div>`;
+        wrap.appendChild(c);
+      });
+    } else if(deps.length){
+      any = true;
+      const c = document.createElement('div');
+      c.className = 'tt-dep-chip tt-dep-chip--clear';
+      c.innerHTML = `<div class="tt-dep-chip__head"><span class="material-symbols-outlined" style="font-size:16px;">check_circle</span>All ${deps.length} ${deps.length===1?'dependency':'dependencies'} complete</div>`;
+      wrap.appendChild(c);
+    }
+
+    if(ext){
+      any = true;
+      const person = personById(ext.personId);
+      const c = document.createElement('div');
+      c.className = 'tt-dep-chip tt-dep-chip--wait';
+      const emailStatus = ext.notifiedAt ? 'emailed — no response yet' : 'email not sent yet';
+      c.innerHTML = `<div class="tt-dep-chip__head">⏳ Waiting on <strong>${escapeHtml(person?person.name:'a colleague')}</strong></div>`
+        + (ext.note ? `<div class="tt-dep-chip__note">"${escapeHtml(ext.note)}"</div>` : '')
+        + `<div class="tt-dep-chip__note" style="font-style:normal;opacity:.7;">${emailStatus}</div>`;
+      const actions = document.createElement('div');
+      actions.className = 'tt-dep-chip__actions';
+      const rb = document.createElement('button');
+      rb.className = 'tt-btn'; rb.style.cssText = 'font-size:11px;padding:3px 9px;';
+      rb.textContent = 'Mark resolved';
+      rb.onclick = async ()=>{ await resolveDependency(task.id); openModal(task.id); };
+      actions.appendChild(rb); c.appendChild(actions);
+      wrap.appendChild(c);
+    }
+
+    if(chain){
+      any = true;
+      const doneCount = chain.filter(s=>s.status==='done').length;
+      const lbl = document.createElement('div');
+      lbl.className = 'tt-dep-chip__note';
+      lbl.style.cssText = 'font-style:normal;color:var(--ink-soft);margin-top:2px;';
+      lbl.textContent = `Handoff chain · ${doneCount}/${chain.length} complete`;
+      wrap.appendChild(lbl);
+      wrap.appendChild(renderChainBar(task));
+    }
+
+    if(!any){
+      const c = document.createElement('div');
+      c.className = 'tt-dep-chip tt-dep-chip--clear';
+      c.innerHTML = `<div class="tt-dep-chip__head"><span class="material-symbols-outlined" style="font-size:16px;">check_circle</span>No blockers — nothing waiting</div>`;
+      wrap.appendChild(c);
+    }
+    return wrap;
   }
 
   function escapeHtml(s){
@@ -879,108 +901,150 @@
       return `<label style="display:flex;align-items:center;gap:6px;font-size:13px;padding:4px 0;"><input type="checkbox" value="${t.id}" ${checked}/> ${escapeHtml(t.title)}</label>`;
     }).join('') || '<p style="font-size:12.5px;color:var(--ink-soft);">No other tasks yet to depend on.</p>';
 
-    let extSection = '';
-    if(editing){
-      const dep = editing.externalDependency;
-      if(dep && !dep.resolvedAt){
-        const pName = personById(dep.personId)?.name || 'a colleague';
-        extSection = `
-          <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
-            <label style="font-size:12px;color:var(--ink-soft);">Colleague dependency</label>
-            <p style="font-size:12.5px;margin:6px 0 4px;">⏳ Waiting on <strong>${escapeHtml(pName)}</strong>${dep.notifiedAt?'':' <span style="color:var(--coral);">(email not sent)</span>'}</p>
-            ${dep.note? `<p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;">"${escapeHtml(dep.note)}"</p>`:''}
-            <button class="tt-btn" id="tt-resolve-dep" style="font-size:12px;">Mark resolved</button>
-          </div>`;
-      } else {
-        const personOpts = people.length
-          ? people.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')
-          : '<option value="">No colleagues yet</option>';
-        extSection = `
-          <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
-            <label style="font-size:12px;color:var(--ink-soft);">Flag dependency on a colleague</label>
-            <select class="tt-select" id="tt-dep-person" style="margin:4px 0 8px;font-size:13px;" ${people.length?'':'disabled'}>${personOpts}</select>
-            <textarea class="tt-textarea" id="tt-dep-note" style="margin:0 0 8px;min-height:44px;" placeholder="What are you waiting on them for?"></textarea>
-            <div style="display:flex;align-items:center;gap:8px;">
-              <button class="tt-btn" id="tt-flag-dep" style="font-size:12px;" ${people.length?'':'disabled'}>Flag &amp; notify</button>
-              <span id="tt-dep-status" style="font-size:12px;color:var(--ink-soft);"></span>
-            </div>
-            ${people.length?'':'<p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;">Add colleagues first via “Colleagues”.</p>'}
-          </div>`;
-      }
+    const assignedToMe = currentUser && editing && editing.assignedTo === currentUser.id;
+
+    // Flag-a-new-colleague-dependency form (lives inside More details). An ACTIVE
+    // flag is shown + resolved in the Dependencies view instead.
+    const activeExt = editing && editing.externalDependency && !editing.externalDependency.resolvedAt;
+    let flagForm = '';
+    if(editing && !activeExt){
+      const personOpts = people.length
+        ? people.map(p=>`<option value="${p.id}">${escapeHtml(p.name)}</option>`).join('')
+        : '<option value="">No colleagues yet</option>';
+      flagForm = `
+        <div style="border-top:0.5px solid var(--line);margin-top:12px;padding-top:12px;">
+          <label style="font-size:12px;color:var(--ink-soft);">Flag dependency on a colleague</label>
+          <select class="tt-select" id="tt-dep-person" style="margin:4px 0 8px;font-size:13px;" ${people.length?'':'disabled'}>${personOpts}</select>
+          <textarea class="tt-textarea" id="tt-dep-note" style="margin:0 0 8px;min-height:44px;" placeholder="What are you waiting on them for?"></textarea>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <button class="tt-btn" id="tt-flag-dep" style="font-size:12px;" ${people.length?'':'disabled'}>Flag &amp; notify</button>
+            <span id="tt-dep-status" style="font-size:12px;color:var(--ink-soft);"></span>
+          </div>
+          ${people.length?'':'<p style="font-size:12px;color:var(--ink-soft);margin:6px 0 0;">Add colleagues first via “Colleagues”.</p>'}
+        </div>`;
     }
 
     let chainBuilderSection = '';
     if(editing){
       const hasChain = Array.isArray(editing.chain) && editing.chain.length;
       chainBuilderSection = `
-        <div style="border-top:0.5px solid var(--line);margin-top:4px;padding-top:12px;margin-bottom:14px;">
+        <div style="border-top:0.5px solid var(--line);margin-top:12px;padding-top:12px;">
           <label style="font-size:12px;color:var(--ink-soft);">Dependency chain</label>
-          <p style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 8px;">${hasChain? `A ${editing.chain.length}-stage chain is set — advance it from the card.` : 'Track a multi-person handoff as an ordered chain.'}</p>
+          <p style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 8px;">${hasChain? `A ${editing.chain.length}-stage chain is set — advance it from Dependencies above.` : 'Track a multi-person handoff as an ordered chain.'}</p>
           <button class="tt-btn" id="tt-build-chain" style="font-size:12px;">${hasChain?'Rebuild chain':'Build a dependency chain'}</button>
         </div>`;
     }
+
+    // Editable form — shown directly for a new task, tucked behind "More details" when viewing one.
+    const formFields = `
+      <label style="font-size:12px;color:var(--ink-soft);">Title</label>
+      <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
+      <label style="font-size:12px;color:var(--ink-soft);">Priority</label>
+      <select class="tt-select" id="tt-new-priority" style="margin:4px 0 10px;">
+        ${PRIORITIES.map(p=>`<option value="${p.key}" ${(editing?priorityOf(editing):'medium')===p.key?'selected':''}>${p.label}</option>`).join('')}
+      </select>
+      <label style="font-size:12px;color:var(--ink-soft);">Assign to</label>
+      <select class="tt-select" id="tt-new-assignee" style="margin:4px 0 10px;">
+        <option value="" ${assigneeSel===''?'selected':''}>Unassigned</option>
+        ${users.map(u=>`<option value="${u.id}" ${assigneeSel===u.id?'selected':''}>${escapeHtml(u.name)}${currentUser&&u.id===currentUser.id?' (you)':''}</option>`).join('')}
+      </select>
+      <label style="font-size:12px;color:var(--ink-soft);">Notes (optional)</label>
+      <textarea class="tt-textarea" id="tt-new-notes" style="margin:4px 0 10px;min-height:56px;" placeholder="Any context for this task">${editing ? escapeHtml(editing.notes||'') : ''}</textarea>
+      <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
+      <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 4px;">${depOptions}</div>
+      ${flagForm}
+      ${chainBuilderSection}`;
+
+    const closeBtnHtml = `<button class="tt-modal-x" id="tt-modal-close" title="Close" style="position:absolute;top:12px;right:12px;"><span class="material-symbols-outlined" style="font-size:20px;">close</span></button>`;
+
+    let body;
+    if(editing){
+      const prio = priorityMeta(editing);
+      const shortId = 'TL-' + editing.id.slice(-4).toUpperCase();
+      body = `
+        ${closeBtnHtml}
+        <h2 class="tt-detail-title">${escapeHtml(editing.title)}</h2>
+        <div class="tt-detail-badges">
+          <span class="tt-tag" style="border-color:${prio.color};color:${prio.color};background:transparent;">${prio.label}</span>
+          <span class="tt-tag"${assignedToMe?' style="border-color:var(--ink);color:var(--ink);"':''}>${assignedToMe?'You':escapeHtml(assigneeName(editing))}</span>
+        </div>
+        <div class="tt-secn-label">Status</div>
+        <div class="tt-status-btns" id="tt-detail-status"></div>
+        <div class="tt-secn-label">Dependencies</div>
+        <div id="tt-detail-deps"></div>
+        <details class="tt-more">
+          <summary>More details &amp; edit</summary>
+          <div style="margin-top:6px;">
+            ${formFields}
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;">
+              <button class="tt-btn tt-danger" id="tt-remove" style="font-size:12px;">Remove</button>
+              <button class="tt-btn tt-btn-primary" id="tt-save">Save changes</button>
+            </div>
+          </div>
+        </details>
+        <div class="tt-detail-id" title="${editing.id}">${shortId}</div>`;
+    } else {
+      body = `
+        ${closeBtnHtml}
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+          <span class="material-symbols-outlined" style="color:var(--primary);font-size:20px;font-variation-settings:'FILL' 1;">assignment</span>
+          <span class="tt-modal-eyebrow">New task</span>
+        </div>
+        ${formFields}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:16px;">
+          <button class="tt-btn" id="tt-cancel">Cancel</button>
+          <button class="tt-btn tt-btn-primary" id="tt-save">Add task</button>
+        </div>`;
+    }
+
     layer.innerHTML = `
     <div style="min-height:400px;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;position:absolute;inset:0;">
-      <div class="tt-modal-card" style="background:var(--card);border-radius:16px;padding:1.25rem 1.5rem;width:380px;max-width:90vw;border:1px solid var(--line);max-height:90vh;overflow-y:auto;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="material-symbols-outlined" style="color:var(--primary);font-size:20px;font-variation-settings:'FILL' 1;">assignment</span>
-            <span class="tt-modal-eyebrow">${editing ? 'Task detail' : 'New task'}</span>
-          </div>
-          <button class="tt-modal-x" id="tt-modal-close" title="Close"><span class="material-symbols-outlined" style="font-size:20px;">close</span></button>
-        </div>
-        <label style="font-size:12px;color:var(--ink-soft);">Title</label>
-        <input class="tt-input" id="tt-new-title" style="margin:4px 0 10px;" placeholder="Draft the Q3 summary" value="${editing ? escapeHtml(editing.title) : ''}"/>
-        <label style="font-size:12px;color:var(--ink-soft);">Priority</label>
-        <select class="tt-select" id="tt-new-priority" style="margin:4px 0 10px;">
-          ${PRIORITIES.map(p=>`<option value="${p.key}" ${(editing?priorityOf(editing):'medium')===p.key?'selected':''}>${p.label}</option>`).join('')}
-        </select>
-        <label style="font-size:12px;color:var(--ink-soft);">Assign to</label>
-        <select class="tt-select" id="tt-new-assignee" style="margin:4px 0 10px;">
-          <option value="" ${assigneeSel===''?'selected':''}>Unassigned</option>
-          ${users.map(u=>`<option value="${u.id}" ${assigneeSel===u.id?'selected':''}>${escapeHtml(u.name)}${currentUser&&u.id===currentUser.id?' (you)':''}</option>`).join('')}
-        </select>
-        <label style="font-size:12px;color:var(--ink-soft);">Notes (optional)</label>
-        <textarea class="tt-textarea" id="tt-new-notes" style="margin:4px 0 10px;min-height:56px;" placeholder="Any context for this task">${editing ? escapeHtml(editing.notes||'') : ''}</textarea>
-        <label style="font-size:12px;color:var(--ink-soft);">Depends on</label>
-        <div id="tt-dep-list" style="max-height:120px;overflow-y:auto;margin:4px 0 14px;">${depOptions}</div>
-        ${extSection}
-        ${chainBuilderSection}
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:4px;">
-          <button class="tt-btn" id="tt-cancel">Cancel</button>
-          <div style="display:flex;gap:8px;">
-            ${editing && editing.status!=='done' ? '<button class="tt-btn tt-btn-primary" id="tt-markdone"><span class="material-symbols-outlined" style="font-size:15px;vertical-align:-3px;margin-right:4px;">check_circle</span>Mark done</button>' : ''}
-            <button class="tt-btn${editing ? '' : ' tt-btn-primary'}" id="tt-save">${editing ? 'Save changes' : 'Add task'}</button>
-          </div>
-        </div>
+      <div class="tt-modal-card" style="position:relative;background:var(--card);border-radius:16px;padding:1.25rem 1.5rem;width:400px;max-width:92vw;border:1px solid var(--line);max-height:90vh;overflow-y:auto;">
+        ${body}
       </div>
     </div>`;
-    document.getElementById('tt-cancel').onclick = ()=>{ layer.innerHTML=''; };
+
     document.getElementById('tt-modal-close').onclick = ()=>{ layer.innerHTML=''; };
-    const markDoneBtn = document.getElementById('tt-markdone');
-    if(markDoneBtn) markDoneBtn.onclick = async ()=>{ await apiPatchTask(editing.id, { status:'done' }); layer.innerHTML=''; await loadTasks(); };
+    const cancelBtn = document.getElementById('tt-cancel');
+    if(cancelBtn) cancelBtn.onclick = ()=>{ layer.innerHTML=''; };
+
     if(editing){
+      // Prominent status buttons (current one highlighted + disabled).
+      const statusEl = document.getElementById('tt-detail-status');
+      COLS.forEach(c=>{
+        const b = document.createElement('button');
+        const isCurrent = c.key===editing.status;
+        b.className = 'tt-btn tt-status-btn' + (isCurrent?' tt-status-btn--active':'');
+        b.textContent = c.label;
+        if(isCurrent){ b.disabled = true; }
+        else {
+          if(c.key==='done' && isBlocked(editing)){ b.title='Still blocked by an unfinished dependency'; b.style.opacity='0.6'; }
+          b.onclick = async ()=>{ await apiPatchTask(editing.id, { status:c.key }); layer.innerHTML=''; await loadTasks(); };
+        }
+        statusEl.appendChild(b);
+      });
+      // Scannable dependency view (chain-tracker visual language).
+      document.getElementById('tt-detail-deps').appendChild(renderDependencyView(editing));
+
+      const removeBtn = document.getElementById('tt-remove');
+      if(removeBtn) removeBtn.onclick = async ()=>{ await apiDeleteTask(editing.id); layer.innerHTML=''; await loadTasks(); };
       const flagBtn = document.getElementById('tt-flag-dep');
       if(flagBtn) flagBtn.onclick = async ()=>{
         const personId = document.getElementById('tt-dep-person').value;
         if(!personId) return;
         const note = document.getElementById('tt-dep-note').value.trim();
-        const statusEl = document.getElementById('tt-dep-status');
-        statusEl.style.color='var(--ink-soft)';
-        statusEl.textContent='Sending…';
+        const statusEl2 = document.getElementById('tt-dep-status');
+        statusEl2.style.color='var(--ink-soft)';
+        statusEl2.textContent='Sending…';
         flagBtn.disabled = true;
-        const result = await flagDependency(editing.id, personId, note, statusEl);
+        const result = await flagDependency(editing.id, personId, note, statusEl2);
         if(result.ok && result.emailed){ openModal(editing.id); }
         else { flagBtn.disabled = false; }
-      };
-      const resolveBtn = document.getElementById('tt-resolve-dep');
-      if(resolveBtn) resolveBtn.onclick = async ()=>{
-        await resolveDependency(editing.id);
-        openModal(editing.id);
       };
       const buildChainBtn = document.getElementById('tt-build-chain');
       if(buildChainBtn) buildChainBtn.onclick = ()=>openChainBuilder(editing.id);
     }
+
     document.getElementById('tt-save').onclick = async ()=>{
       const title = document.getElementById('tt-new-title').value.trim();
       if(!title) return;
