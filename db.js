@@ -70,6 +70,8 @@ const SCHEMA = `
 
 async function init() {
   await pool.query(SCHEMA);
+  // Added after the users table already existed in some deployments.
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE');
 }
 
 function newId(prefix) {
@@ -318,7 +320,7 @@ async function linkPersonToUser(personId, userId) {
 // --- Users ---
 
 function mapUser(u) {
-  return u ? { id: u.id, name: u.name, email: u.email, createdAt: u.created_at } : null;
+  return u ? { id: u.id, name: u.name, email: u.email, createdAt: u.created_at, isAdmin: !!u.is_admin } : null;
 }
 
 // Canonical form for matching. Gmail ignores dots and +tags and treats
@@ -394,6 +396,18 @@ async function getWaitingOnUser(userId) {
   return rows;
 }
 
+// Authoritatively set users.is_admin from ADMIN_EMAILS (comma-separated, Gmail-
+// normalized). Runs at startup so admin status is config-driven, not hand-edited.
+async function syncAdmins() {
+  const raw = (process.env.ADMIN_EMAILS || '').trim();
+  const admins = raw ? raw.split(',').map(s => normalizeEmail(s)).filter(Boolean) : [];
+  const { rows } = await pool.query('SELECT id, email FROM users');
+  for (const u of rows) {
+    const shouldBe = !!(u.email && admins.includes(normalizeEmail(u.email)));
+    await pool.query('UPDATE users SET is_admin = $1 WHERE id = $2', [shouldBe, u.id]);
+  }
+}
+
 // --- Daily report snapshots (frozen historical records) ---
 
 async function getDailyReport(dateStr) {
@@ -427,6 +441,6 @@ module.exports = {
   setExternalDependency, markNotified, resolveExternalDependency,
   getPeople, getPerson, addPerson, deletePerson, linkPersonToUser,
   getUsers, getUser, getUserByEmail, addUser, deleteUser, normalizeEmail,
-  syncPersonUserLinks, getWaitingOnUser,
+  syncPersonUserLinks, syncAdmins, getWaitingOnUser,
   getDailyReport, saveDailyReport, getReportDates
 };

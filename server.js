@@ -540,19 +540,29 @@ function sendDoc(res, children, filename) {
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// Personal report (.docx): records assigned to the signed-in user, from the
-// (possibly frozen) snapshot for that date.
+// The single scope gate: a user may only request their own scope unless they are
+// an admin. Any report/analytics scope for another person routes through here so
+// the permission rule lives in exactly one place.
+function scopeAllowed(user, targetUserId) {
+  return !targetUserId || targetUserId === user.id || !!user.isAdmin;
+}
+
+// Personal report (.docx): records assigned to the signed-in user — or, for an
+// admin, to ?user=<id>. Non-admins requesting anyone else get 403.
 app.get('/api/report/:date', wrap(async (req, res) => {
   const dateStr = req.params.date;
   if (!DATE_RE.test(dateStr)) return res.status(400).json({ error: 'Date must be YYYY-MM-DD' });
   const user = await auth.getCurrentUser(req);
+  const targetId = req.query.user || user.id;
+  if (!scopeAllowed(user, targetId)) return res.status(403).json({ error: 'Admins only' });
   const { content } = await getOrCreateReportData(dateStr);
-  const mine = content.records.filter(r => r.assignedTo === user.id);
-  const { children, counts } = reportSections(mine, HeadingLevel.HEADING_2, 'you');
+  const target = content.users.find(u => u.id === targetId) || { id: targetId, name: user.name };
+  const theirs = content.records.filter(r => r.assignedTo === targetId);
+  const { children, counts } = reportSections(theirs, HeadingLevel.HEADING_2, targetId === user.id ? 'you' : 'third');
   const summary = `${counts.completed} task${counts.completed === 1 ? '' : 's'} completed, ` +
     `${counts.inProgress} in progress, ${counts.blocked} blocked.`;
   const doc = [
-    new Paragraph({ text: `Daily Report — ${user.name} — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
+    new Paragraph({ text: `Daily Report — ${target.name} — ${fmtLongDate(dateStr)}`, heading: HeadingLevel.HEADING_1 }),
     new Paragraph({ children: [new TextRun({ text: summary })], spacing: { after: 240 } }),
     ...children
   ];
@@ -608,6 +618,7 @@ app.use((err, req, res, next) => {
 async function start() {
   await dbm.init();
   await dbm.syncPersonUserLinks();
+  await dbm.syncAdmins();
   return app.listen(PORT, () => {
     console.log(`Task tracker running at http://localhost:${PORT}`);
   });

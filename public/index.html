@@ -264,7 +264,7 @@
         <div class="tt-report__actions">
           <select id="tt-report-format" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;">
             <option value="narrative">Narrative</option>
-            <option value="table">Table</option>
+            <option value="table" selected>Table</option>
           </select>
           <select id="tt-report-type" class="tt-select" style="width:auto;font-size:13px;padding:6px 8px;">
             <option value="personal">My report</option>
@@ -294,7 +294,7 @@
   let currentUser = null;
   let boardFilter = 'mine'; // 'mine' | 'team'
   let reportType = 'personal'; // 'personal' | 'team'
-  let reportFormat = 'narrative'; // 'narrative' | 'table'
+  let reportFormat = 'table'; // 'narrative' | 'table' — Table is the default view
   let reportData = null;          // structured report data for the selected date (from server)
   let reportSnapshotDates = [];   // dates that have a locked-in snapshot
   const COLS = [
@@ -708,7 +708,24 @@
     const dates = allReportDates();
     sel.innerHTML = dates.map(d=>`<option value="${d}">${d===todayStr()?'Today · ':''}${fmtDate(d)}</option>`).join('');
     sel.value = dates.includes(prev) ? prev : todayStr();
+    renderReportTypeOptions();
     renderHistoryList();
+  }
+
+  // Report scope dropdown: My report / Team report for everyone, plus a per-teammate
+  // switcher for admins (gated server-side too, in /api/report/:date).
+  function renderReportTypeOptions(){
+    const sel = document.getElementById('tt-report-type');
+    if(!sel) return;
+    const prev = sel.value || reportType;
+    let html = '<option value="personal">My report</option><option value="team">Team report</option>';
+    if(currentUser && currentUser.isAdmin){
+      const others = users.filter(u=>u.id!==currentUser.id);
+      if(others.length) html += others.map(u=>`<option value="user:${u.id}">${escapeHtml(u.name)}’s report</option>`).join('');
+    }
+    sel.innerHTML = html;
+    sel.value = Array.from(sel.options).some(o=>o.value===prev) ? prev : 'personal';
+    if(sel.value !== reportType) reportType = sel.value;
   }
 
   // Simple browsable list of days that have a locked-in snapshot.
@@ -793,9 +810,15 @@
       });
       return out.trimEnd() + '\n';
     }
-    const mine = rd.records.filter(r=> currentUser && r.assignedTo===currentUser.id);
-    const { text, counts } = reportSubsetText(mine, 'you');
-    let out = `Daily report — ${currentUser?currentUser.name:''} — ${fmtDate(rd.date)}\n`;
+    // "My report" (self) or, for admins, a specific teammate ("user:<id>").
+    const isOther = reportType && reportType.indexOf('user:')===0;
+    const targetId = isOther ? reportType.slice(5) : (currentUser ? currentUser.id : null);
+    const targetName = isOther
+      ? ((users.find(u=>u.id===targetId) || (rd.users||[]).find(u=>u.id===targetId) || {}).name || 'Teammate')
+      : (currentUser ? currentUser.name : '');
+    const mine = rd.records.filter(r=> r.assignedTo===targetId);
+    const { text, counts } = reportSubsetText(mine, isOther ? 'third' : 'you');
+    let out = `Daily report — ${targetName} — ${fmtDate(rd.date)}\n`;
     out += '='.repeat(28) + '\n\n';
     out += `${counts.done} task${counts.done===1?'':'s'} completed, ${counts.inProgress} in progress, ${counts.blocked} blocked.\n\n`;
     out += text;
@@ -805,6 +828,10 @@
   function reportScopeRecords(){
     if(!reportData) return [];
     if(reportType==='team') return reportData.records;
+    if(reportType && reportType.indexOf('user:')===0){
+      const uid = reportType.slice(5);
+      return reportData.records.filter(r=> r.assignedTo===uid);
+    }
     return reportData.records.filter(r=> currentUser && r.assignedTo===currentUser.id);
   }
   function getReportRows(){
@@ -888,7 +915,11 @@
   });
   document.getElementById('tt-download-report').addEventListener('click', ()=>{
     const dateStr = document.getElementById('tt-report-date').value || todayStr();
-    window.location.href = reportType==='team' ? `/api/report/${dateStr}/team` : `/api/report/${dateStr}`;
+    let url;
+    if(reportType==='team') url = `/api/report/${dateStr}/team`;
+    else if(reportType && reportType.indexOf('user:')===0) url = `/api/report/${dateStr}?user=${encodeURIComponent(reportType.slice(5))}`;
+    else url = `/api/report/${dateStr}`;
+    window.location.href = url;
   });
 
   function openModal(editId){
