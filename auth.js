@@ -97,6 +97,10 @@ function configure(app) {
           if (!user) {
             user = await dbm.addUser({ name: profile.displayName || email, email });
             await dbm.syncPersonUserLinks();
+            // Apply role flags now so a first-time sign-in (e.g. a manager) gets
+            // their role immediately, not only after the next server restart.
+            await dbm.syncAdmins();
+            await dbm.syncManagers();
           }
           return done(null, user);
         } catch (e) { return done(e); }

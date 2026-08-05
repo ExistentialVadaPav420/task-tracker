@@ -42,7 +42,8 @@ const SCHEMA = `
     assigned_to  TEXT,
     created_at   TEXT,
     completed_at TEXT,
-    chain        TEXT
+    chain        TEXT,
+    due_date     TEXT
   );
 
   CREATE TABLE IF NOT EXISTS task_dependencies (
@@ -72,6 +73,8 @@ async function init() {
   await pool.query(SCHEMA);
   // Added after the users table already existed in some deployments.
   await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE');
+  await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS is_manager BOOLEAN NOT NULL DEFAULT FALSE');
+  await pool.query('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS due_date TEXT');
 }
 
 function newId(prefix) {
@@ -119,6 +122,7 @@ function hydrateWith(row, deps, external) {
     assignedTo: row.assigned_to,
     createdAt: row.created_at,
     completedAt: row.completed_at,
+    dueDate: row.due_date || null,
     dependsOn: deps || [],
     externalDependency: external || null,
     chain: row.chain ? JSON.parse(row.chain) : null
@@ -163,15 +167,16 @@ function taskToRow(t) {
     assigned_to: t.assignedTo || null,
     created_at: t.createdAt || new Date().toISOString(),
     completed_at: t.completedAt || null,
-    chain: t.chain ? JSON.stringify(t.chain) : null
+    chain: t.chain ? JSON.stringify(t.chain) : null,
+    due_date: t.dueDate || null
   };
 }
 
 async function insertTaskRow(client, row) {
   await client.query(
-    `INSERT INTO tasks (id, title, notes, status, priority, created_by, assigned_to, created_at, completed_at, chain)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
-    [row.id, row.title, row.notes, row.status, row.priority, row.created_by, row.assigned_to, row.created_at, row.completed_at, row.chain]
+    `INSERT INTO tasks (id, title, notes, status, priority, created_by, assigned_to, created_at, completed_at, chain, due_date)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+    [row.id, row.title, row.notes, row.status, row.priority, row.created_by, row.assigned_to, row.created_at, row.completed_at, row.chain, row.due_date]
   );
 }
 
@@ -233,12 +238,13 @@ async function updateTask(id, fields) {
     status: fields.status !== undefined ? fields.status : existing.status,
     priority: fields.priority !== undefined ? fields.priority : existing.priority,
     assigned_to: fields.assignedTo !== undefined ? (fields.assignedTo || null) : existing.assigned_to,
-    completed_at: fields.completedAt !== undefined ? fields.completedAt : existing.completed_at
+    completed_at: fields.completedAt !== undefined ? fields.completedAt : existing.completed_at,
+    due_date: fields.dueDate !== undefined ? (fields.dueDate || null) : existing.due_date
   };
   await withTx(async (client) => {
     await client.query(
-      `UPDATE tasks SET title=$1, notes=$2, status=$3, priority=$4, assigned_to=$5, completed_at=$6 WHERE id=$7`,
-      [merged.title, merged.notes, merged.status, merged.priority, merged.assigned_to, merged.completed_at, id]
+      `UPDATE tasks SET title=$1, notes=$2, status=$3, priority=$4, assigned_to=$5, completed_at=$6, due_date=$7 WHERE id=$8`,
+      [merged.title, merged.notes, merged.status, merged.priority, merged.assigned_to, merged.completed_at, merged.due_date, id]
     );
     if (fields.dependsOn !== undefined) {
       await client.query('DELETE FROM task_dependencies WHERE task_id = $1', [id]);
@@ -320,7 +326,7 @@ async function linkPersonToUser(personId, userId) {
 // --- Users ---
 
 function mapUser(u) {
-  return u ? { id: u.id, name: u.name, email: u.email, createdAt: u.created_at, isAdmin: !!u.is_admin } : null;
+  return u ? { id: u.id, name: u.name, email: u.email, createdAt: u.created_at, isAdmin: !!u.is_admin, isManager: !!u.is_manager } : null;
 }
 
 // Canonical form for matching. Gmail ignores dots and +tags and treats
@@ -408,6 +414,18 @@ async function syncAdmins() {
   }
 }
 
+// Same pattern as syncAdmins, for the (distinct) manager role. is_admin is treated
+// as a superset of is_manager in canSeeManagerDashboard(), so admins aren't locked out.
+async function syncManagers() {
+  const raw = (process.env.MANAGER_EMAILS || '').trim();
+  const managers = raw ? raw.split(',').map(s => normalizeEmail(s)).filter(Boolean) : [];
+  const { rows } = await pool.query('SELECT id, email FROM users');
+  for (const u of rows) {
+    const shouldBe = !!(u.email && managers.includes(normalizeEmail(u.email)));
+    await pool.query('UPDATE users SET is_manager = $1 WHERE id = $2', [shouldBe, u.id]);
+  }
+}
+
 // --- Daily report snapshots (frozen historical records) ---
 
 async function getDailyReport(dateStr) {
@@ -441,6 +459,6 @@ module.exports = {
   setExternalDependency, markNotified, resolveExternalDependency,
   getPeople, getPerson, addPerson, deletePerson, linkPersonToUser,
   getUsers, getUser, getUserByEmail, addUser, deleteUser, normalizeEmail,
-  syncPersonUserLinks, syncAdmins, getWaitingOnUser,
+  syncPersonUserLinks, syncAdmins, syncManagers, getWaitingOnUser,
   getDailyReport, saveDailyReport, getReportDates
 };

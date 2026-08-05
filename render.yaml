@@ -28,6 +28,8 @@ services:
         sync: false          # Optional: comma-separated allowlist of sign-in emails
       - key: ADMIN_EMAILS
         sync: false          # Comma-separated emails granted is_admin (report person-switcher)
+      - key: MANAGER_EMAILS
+        sync: false          # Comma-separated emails granted is_manager (manager dashboard)
       - key: SENDGRID_API_KEY
         sync: false
       - key: FROM_EMAIL

@@ -111,7 +111,7 @@ app.get('/api/tasks', wrap(async (req, res) => {
 // Granular writes (replaces the old bulk PUT, which lost concurrent edits).
 app.post('/api/tasks', wrap(async (req, res) => {
   const user = await auth.getCurrentUser(req);
-  const { title, notes, priority, dependsOn, assignedTo } = req.body || {};
+  const { title, notes, priority, dependsOn, assignedTo, dueDate } = req.body || {};
   if (!title || !String(title).trim()) return res.status(400).json({ error: 'title is required' });
   const task = await dbm.createTask({
     title: String(title).trim(),
@@ -121,6 +121,7 @@ app.post('/api/tasks', wrap(async (req, res) => {
     dependsOn: Array.isArray(dependsOn) ? dependsOn : [],
     createdBy: user.id,
     assignedTo: assignedTo || user.id,
+    dueDate: DATE_RE.test(dueDate || '') ? dueDate : null,
     createdAt: new Date().toISOString(),
     completedAt: null,
     chain: null
@@ -138,6 +139,7 @@ app.patch('/api/tasks/:id', wrap(async (req, res) => {
   if (b.priority !== undefined) fields.priority = b.priority;
   if (b.dependsOn !== undefined) fields.dependsOn = Array.isArray(b.dependsOn) ? b.dependsOn : [];
   if (b.assignedTo !== undefined) fields.assignedTo = b.assignedTo || null;
+  if (b.dueDate !== undefined) fields.dueDate = DATE_RE.test(b.dueDate || '') ? b.dueDate : null;
   if (b.status !== undefined) {
     fields.status = b.status;
     fields.completedAt = b.status === 'done' ? new Date().toISOString() : null;
@@ -547,6 +549,12 @@ function scopeAllowed(user, targetUserId) {
   return !targetUserId || targetUserId === user.id || !!user.isAdmin;
 }
 
+// Manager dashboard gate. is_admin is a superset of is_manager, so an admin
+// (you) is never locked out of what a manager (Amruta) can see.
+function canSeeManagerDashboard(user) {
+  return !!(user && (user.isManager || user.isAdmin));
+}
+
 // Personal report (.docx): records assigned to the signed-in user — or, for an
 // admin, to ?user=<id>. Non-admins requesting anyone else get 403.
 app.get('/api/report/:date', wrap(async (req, res) => {
@@ -608,6 +616,105 @@ app.get('/api/reports', wrap(async (req, res) => {
   res.json(await dbm.getReportDates());
 }));
 
+// --- Manager dashboard (gated: is_manager OR is_admin) ---
+
+// One human-readable blocker line per task (reuses the dependency-flag display).
+function taskBlockerText(t, allTasks, people) {
+  const parts = [];
+  const bl = blockers(t, allTasks).map(b => b.title);
+  if (bl.length) parts.push('Waiting on ' + bl.join(', '));
+  if (hasExternalBlock(t)) {
+    const d = t.externalDependency;
+    const status = d.notifiedAt ? 'no response yet' : 'email not sent';
+    parts.push(`Flagged to ${personName(d.personId, people)} (${status})${d.note ? ': ' + d.note : ''}`);
+  }
+  return parts.join('; ');
+}
+
+function isOverdue(t) {
+  return !!(t.dueDate && t.status !== 'done' && t.dueDate < todayStr());
+}
+
+function managerTaskRow(t, allTasks, people, userName) {
+  return {
+    id: t.id, title: t.title, priority: priorityOf(t), status: t.status,
+    assignedTo: t.assignedTo || null, assigneeName: t.assignedTo ? (userName[t.assignedTo] || 'Unknown') : 'Unassigned',
+    dueDate: t.dueDate || null, overdue: isOverdue(t),
+    completedAt: t.completedAt || null, blocker: taskBlockerText(t, allTasks, people)
+  };
+}
+
+function computeManagerMetrics(allTasks, people) {
+  const DAY = 86400000, now = Date.now();
+  const closed = allTasks.filter(t => t.completedAt && t.createdAt);
+  const avgDaysToClose = closed.length
+    ? Math.round((closed.reduce((a, t) => a + (new Date(t.completedAt) - new Date(t.createdAt)), 0) / closed.length) / DAY * 10) / 10
+    : null;
+  const blockedCount = allTasks.filter(t => t.status !== 'done' && (isBlocked(t, allTasks) || hasExternalBlock(t))).length;
+  const overdueCount = allTasks.filter(isOverdue).length;
+  // Top blockers: people with unresolved flagged dependencies, ranked by how long they've sat.
+  const byPerson = {};
+  for (const t of allTasks) {
+    const d = t.externalDependency;
+    if (d && !d.resolvedAt && d.flaggedAt) {
+      const name = personName(d.personId, people);
+      (byPerson[name] = byPerson[name] || []).push(now - new Date(d.flaggedAt));
+    }
+  }
+  const topBlockers = Object.entries(byPerson)
+    .map(([name, ages]) => ({ name, count: ages.length, longestDays: Math.round(Math.max(...ages) / DAY * 10) / 10 }))
+    .sort((a, b) => b.longestDays - a.longestDays).slice(0, 5);
+  const completedThisWeek = allTasks.filter(t => t.completedAt && (now - new Date(t.completedAt)) < 7 * DAY).length;
+  const completedLastWeek = allTasks.filter(t => {
+    if (!t.completedAt) return false;
+    const age = now - new Date(t.completedAt);
+    return age >= 7 * DAY && age < 14 * DAY;
+  }).length;
+  return { total: allTasks.length, avgDaysToClose, blockedCount, overdueCount, topBlockers, completedThisWeek, completedLastWeek };
+}
+
+async function requireManager(req, res) {
+  const user = await auth.getCurrentUser(req);
+  if (!canSeeManagerDashboard(user)) { res.status(403).json({ error: 'Manager access only' }); return null; }
+  return user;
+}
+
+app.get('/api/manager/overview', wrap(async (req, res) => {
+  if (!(await requireManager(req, res))) return;
+  const [allTasks, people, users] = await Promise.all([dbm.getTasks(), dbm.getPeople(), dbm.getUsers()]);
+  const userName = {};
+  for (const u of users) userName[u.id] = u.name;
+  res.json({
+    tasks: allTasks.map(t => managerTaskRow(t, allTasks, people, userName)),
+    users: users.map(u => ({ id: u.id, name: u.name })),
+    metrics: computeManagerMetrics(allTasks, people)
+  });
+}));
+
+function csvCell(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+
+app.get('/api/manager/export.csv', wrap(async (req, res) => {
+  if (!(await requireManager(req, res))) return;
+  const [allTasks, people, users] = await Promise.all([dbm.getTasks(), dbm.getPeople(), dbm.getUsers()]);
+  const userName = {};
+  for (const u of users) userName[u.id] = u.name;
+  const header = ['Task', 'Assignee', 'Priority', 'Status', 'Due date', 'Completed date', 'Blocker note'];
+  const lines = [header.map(csvCell).join(',')];
+  for (const t of allTasks) {
+    const r = managerTaskRow(t, allTasks, people, userName);
+    lines.push([
+      r.title, r.assigneeName, PRIORITY_LABELS[r.priority] || r.priority, r.status,
+      r.dueDate || '', r.completedAt ? localDateStr(r.completedAt) : '', r.blocker
+    ].map(csvCell).join(','));
+  }
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="team-tasks-${todayStr()}.csv"`);
+  res.send('﻿' + lines.join('\r\n'));
+}));
+
 // Central error handler for anything a wrapped async route rejects with.
 app.use((err, req, res, next) => {
   console.error('Unhandled route error', err);
@@ -619,6 +726,7 @@ async function start() {
   await dbm.init();
   await dbm.syncPersonUserLinks();
   await dbm.syncAdmins();
+  await dbm.syncManagers();
   return app.listen(PORT, () => {
     console.log(`Task tracker running at http://localhost:${PORT}`);
   });

@@ -176,6 +176,24 @@
   .tt-report__doc-title{font-family:var(--font-display);font-size:26px;font-weight:600;color:var(--ink);margin:0;}
   .tt-report__doc-ref{font-family:var(--font-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:6px 0 0;}
   @media (max-width:640px){ .tt-report__doc{padding:20px 18px;} }
+  /* Manager dashboard */
+  .tt-metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:24px;}
+  .tt-metric{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;}
+  .tt-metric__label{font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px;}
+  .tt-metric__value{font-family:var(--font-display);font-size:28px;font-weight:600;color:var(--ink);line-height:1;}
+  .tt-metric__sub{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+  .tt-topblockers{list-style:none;padding:0;margin:4px 0 0;font-size:12.5px;}
+  .tt-topblockers li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);}
+  .tt-topblockers li:last-child{border-bottom:0;}
+  .tt-mgr-filters{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+  .tt-mgr-table{width:100%;border-collapse:collapse;font-size:13px;background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden;}
+  .tt-mgr-table th{text-align:left;font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);padding:12px;border-bottom:1px solid var(--line);}
+  .tt-mgr-table td{padding:10px 12px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  .tt-mgr-table tr:last-child td{border-bottom:0;}
+  .tt-mgr-table .tt-select{padding:5px 8px;font-size:12px;width:auto;min-width:120px;}
+  .tt-mgr-input-date{border:1px solid var(--line-strong);border-radius:8px;padding:5px 8px;font-size:12px;font-family:inherit;background:var(--card);color:var(--ink);}
+  .tt-overdue{color:var(--coral);font-weight:600;font-size:10.5px;margin-top:3px;text-transform:uppercase;letter-spacing:.05em;}
+  .tt-mgr-blocker{color:var(--coral);font-size:12px;max-width:280px;}
   .tt-hist{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;}
   .tt-hist:empty{display:none;}
   .tt-hist-label{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft);margin-right:2px;}
@@ -232,9 +250,10 @@
       <h2 id="tt-session-name">Zephyr</h2>
     </div>
     <nav>
-      <a href="#" class="side-link active"><span class="material-symbols-outlined">grid_view</span>Board</a>
-      <a href="#report" class="side-link"><span class="material-symbols-outlined">description</span>Daily Report</a>
-      <a href="#report" class="side-link"><span class="material-symbols-outlined">history</span>History</a>
+      <a href="#" class="side-link active" id="tt-nav-board"><span class="material-symbols-outlined">grid_view</span>Board</a>
+      <a href="#" class="side-link" id="tt-nav-manager" style="display:none;"><span class="material-symbols-outlined">insights</span>Manager</a>
+      <a href="#report" class="side-link" id="tt-nav-report"><span class="material-symbols-outlined">description</span>Daily Report</a>
+      <a href="#report" class="side-link" id="tt-nav-history"><span class="material-symbols-outlined">history</span>History</a>
     </nav>
     <div class="app-sidebar__spacer"></div>
     <div class="app-sidebar__foot">
@@ -246,6 +265,7 @@
 
   <!-- Main content -->
   <main class="app-main">
+   <div id="tt-view-board">
     <div class="app-main__head">
       <div>
         <nav class="tt-breadcrumb"><span>Workspace</span><span>/</span><b>Board</b></nav>
@@ -291,6 +311,8 @@
       </div>
       <p style="font-size:12px;color:var(--ink-soft);margin:12px 0 0;">This report is built from tasks marked done, whenever you open this board. It won't send itself anywhere on a schedule — copy or download it when you're ready to share it.</p>
     </section>
+   </div>
+   <div id="tt-view-manager" style="display:none;"></div>
   </main>
 </div>
 
@@ -933,6 +955,99 @@
     window.location.href = url;
   });
 
+  // --- Manager dashboard (gated view: is_manager || is_admin) ---
+  let mgrData = null;
+  const mgrFilter = { assignee:'', priority:'', status:'' };
+
+  async function loadManager(){
+    try{ const r = await fetch('/api/manager/overview'); mgrData = r.ok ? await r.json() : null; }
+    catch(e){ mgrData = null; }
+  }
+  function showBoardView(){
+    document.getElementById('tt-view-board').style.display='';
+    document.getElementById('tt-view-manager').style.display='none';
+    document.getElementById('tt-nav-board').classList.add('active');
+    document.getElementById('tt-nav-manager').classList.remove('active');
+    loadTasks(); // refresh board in case the manager reassigned anything
+  }
+  async function showManagerView(){
+    document.getElementById('tt-view-board').style.display='none';
+    const host=document.getElementById('tt-view-manager');
+    host.style.display='';
+    document.getElementById('tt-nav-board').classList.remove('active');
+    document.getElementById('tt-nav-manager').classList.add('active');
+    host.innerHTML='<div class="app-main__head"><h1>Manager Dashboard</h1></div><p class="tt-empty" style="padding:20px;">Loading team overview…</p>';
+    await loadManager();
+    renderManager();
+  }
+  function mgrStatusChip(status){
+    const map={done:['Done','tt-rt-done'],inprogress:['In progress','tt-rt-progress'],todo:['To do','']};
+    const [label,cls]=map[status]||[status,''];
+    return `<span class="tt-rt-status ${cls}">${label}</span>`;
+  }
+  function mgrFilteredTasks(){
+    return mgrData.tasks.filter(t=>{
+      if(mgrFilter.assignee){ if(mgrFilter.assignee==='none'){ if(t.assignedTo) return false; } else if(t.assignedTo!==mgrFilter.assignee) return false; }
+      if(mgrFilter.priority && t.priority!==mgrFilter.priority) return false;
+      if(mgrFilter.status && t.status!==mgrFilter.status) return false;
+      return true;
+    });
+  }
+  async function refreshManager(){ await loadManager(); renderManager(); }
+  function renderManager(){
+    const host=document.getElementById('tt-view-manager');
+    if(!mgrData){ host.innerHTML='<div class="app-main__head"><h1>Manager Dashboard</h1></div><p class="tt-empty" style="padding:20px;">Could not load team data — manager access required.</p>'; return; }
+    const m=mgrData.metrics, users=mgrData.users;
+    const trend=m.completedThisWeek-m.completedLastWeek;
+    const trendStr=(trend>0?'▲ +'+trend:trend<0?'▼ '+trend:'no change')+' vs last week';
+    const metrics=`<div class="tt-metrics">
+      <div class="tt-metric"><p class="tt-metric__label">Avg time to close</p><div class="tt-metric__value">${m.avgDaysToClose!=null?m.avgDaysToClose+'d':'—'}</div></div>
+      <div class="tt-metric"><p class="tt-metric__label">Blocked now</p><div class="tt-metric__value">${m.blockedCount}</div></div>
+      <div class="tt-metric"><p class="tt-metric__label">Overdue</p><div class="tt-metric__value" style="${m.overdueCount?'color:var(--coral);':''}">${m.overdueCount}</div></div>
+      <div class="tt-metric"><p class="tt-metric__label">Completed this week</p><div class="tt-metric__value">${m.completedThisWeek}</div><div class="tt-metric__sub">${trendStr}</div></div>
+      <div class="tt-metric"><p class="tt-metric__label">Top blockers</p>${m.topBlockers.length?`<ul class="tt-topblockers">${m.topBlockers.map(b=>`<li><span>${escapeHtml(b.name)}</span><span style="color:var(--ink-soft);white-space:nowrap;">${b.count}× · ${b.longestDays}d</span></li>`).join('')}</ul>`:'<div class="tt-metric__sub">None flagged</div>'}</div>
+    </div>`;
+    const assigneeOpts=`<option value="">All assignees</option><option value="none">Unassigned</option>`+users.map(u=>`<option value="${u.id}">${escapeHtml(u.name)}</option>`).join('');
+    const prioOpts=`<option value="">All priorities</option>`+PRIORITIES.map(p=>`<option value="${p.key}">${p.label}</option>`).join('');
+    const statusOpts=`<option value="">All statuses</option><option value="todo">To do</option><option value="inprogress">In progress</option><option value="done">Done</option>`;
+    const filters=`<div class="tt-mgr-filters">
+      <select class="tt-select" id="tt-mgr-f-assignee" style="width:auto;">${assigneeOpts}</select>
+      <select class="tt-select" id="tt-mgr-f-priority" style="width:auto;">${prioOpts}</select>
+      <select class="tt-select" id="tt-mgr-f-status" style="width:auto;">${statusOpts}</select>
+    </div>`;
+    const rows=mgrFilteredTasks().map(t=>{
+      const aOpts=`<option value="">Unassigned</option>`+users.map(u=>`<option value="${u.id}" ${t.assignedTo===u.id?'selected':''}>${escapeHtml(u.name)}</option>`).join('');
+      const prio=PRIORITIES.find(p=>p.key===t.priority)||{label:t.priority,color:'var(--ink-soft)'};
+      return `<tr>
+        <td><strong>${escapeHtml(t.title)}</strong></td>
+        <td><select class="tt-select" data-assign="${t.id}">${aOpts}</select></td>
+        <td><span class="tt-tag" style="border-color:${prio.color};color:${prio.color};background:transparent;">${prio.label}</span></td>
+        <td>${mgrStatusChip(t.status)}</td>
+        <td><input type="date" class="tt-mgr-input-date" data-due="${t.id}" value="${t.dueDate||''}">${t.overdue?'<div class="tt-overdue">Overdue</div>':''}</td>
+        <td class="tt-mgr-blocker">${t.blocker?escapeHtml(t.blocker):'<span style="color:var(--ink-soft);">—</span>'}</td>
+      </tr>`;
+    }).join('');
+    host.innerHTML=`
+      <div class="app-main__head">
+        <div><nav class="tt-breadcrumb"><span>Workspace</span><span>/</span><b>Manager</b></nav><h1>Manager Dashboard</h1></div>
+        <button class="tt-btn" id="tt-mgr-export">Export CSV</button>
+      </div>
+      ${metrics}${filters}
+      <table class="tt-mgr-table"><thead><tr><th>Task</th><th>Assignee</th><th>Priority</th><th>Status</th><th>Due date</th><th>Blocker</th></tr></thead>
+      <tbody>${rows||'<tr><td colspan="6" class="tt-empty" style="padding:16px;">No tasks match these filters.</td></tr>'}</tbody></table>`;
+    const fa=document.getElementById('tt-mgr-f-assignee'); fa.value=mgrFilter.assignee; fa.onchange=()=>{mgrFilter.assignee=fa.value;renderManager();};
+    const fp=document.getElementById('tt-mgr-f-priority'); fp.value=mgrFilter.priority; fp.onchange=()=>{mgrFilter.priority=fp.value;renderManager();};
+    const fs=document.getElementById('tt-mgr-f-status'); fs.value=mgrFilter.status; fs.onchange=()=>{mgrFilter.status=fs.value;renderManager();};
+    host.querySelectorAll('[data-assign]').forEach(sel=>{ sel.onchange=async()=>{ await apiPatchTask(sel.getAttribute('data-assign'),{assignedTo:sel.value||null}); await refreshManager(); }; });
+    host.querySelectorAll('[data-due]').forEach(inp=>{ inp.onchange=async()=>{ await apiPatchTask(inp.getAttribute('data-due'),{dueDate:inp.value||null}); await refreshManager(); }; });
+    document.getElementById('tt-mgr-export').onclick=()=>{ window.location.href='/api/manager/export.csv'; };
+  }
+
+  document.getElementById('tt-nav-board').addEventListener('click',(e)=>{ e.preventDefault(); showBoardView(); });
+  document.getElementById('tt-nav-manager').addEventListener('click',(e)=>{ e.preventDefault(); showManagerView(); });
+  document.getElementById('tt-nav-report').addEventListener('click',(e)=>{ e.preventDefault(); showBoardView(); setTimeout(()=>document.getElementById('report').scrollIntoView({behavior:'smooth'}),60); });
+  document.getElementById('tt-nav-history').addEventListener('click',(e)=>{ e.preventDefault(); showBoardView(); setTimeout(()=>document.getElementById('report').scrollIntoView({behavior:'smooth'}),60); });
+
   function openModal(editId){
     const layer = document.getElementById('tt-modal-layer');
     const editing = editId ? tasks.find(t=>t.id===editId) : null;
@@ -1263,6 +1378,8 @@
   function applyCurrentUser(){
     const nameEl = document.getElementById('tt-session-name');
     if(nameEl) nameEl.textContent = currentUser ? currentUser.name : 'Zephyr';
+    const mgrNav = document.getElementById('tt-nav-manager');
+    if(mgrNav) mgrNav.style.display = (currentUser && (currentUser.isManager || currentUser.isAdmin)) ? 'flex' : 'none';
   }
   async function doLogin(userId){
     const res = await fetch('/api/login', {
