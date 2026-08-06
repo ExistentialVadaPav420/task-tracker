@@ -405,8 +405,10 @@ async function getWaitingOnUser(userId) {
 // Authoritatively set users.is_admin from ADMIN_EMAILS (comma-separated, Gmail-
 // normalized). Runs at startup so admin status is config-driven, not hand-edited.
 async function syncAdmins() {
-  const raw = (process.env.ADMIN_EMAILS || '').trim();
-  const admins = raw ? raw.split(',').map(s => normalizeEmail(s)).filter(Boolean) : [];
+  const admins = (process.env.ADMIN_EMAILS || '').split(',').map(s => normalizeEmail(s)).filter(Boolean);
+  // Missing/empty (or garbage that parses to nothing) => leave existing is_admin
+  // flags untouched, rather than wiping everyone's role on boot.
+  if (!admins.length) return;
   const { rows } = await pool.query('SELECT id, email FROM users');
   for (const u of rows) {
     const shouldBe = !!(u.email && admins.includes(normalizeEmail(u.email)));
@@ -417,8 +419,9 @@ async function syncAdmins() {
 // Same pattern as syncAdmins, for the (distinct) manager role. is_admin is treated
 // as a superset of is_manager in canSeeManagerDashboard(), so admins aren't locked out.
 async function syncManagers() {
-  const raw = (process.env.MANAGER_EMAILS || '').trim();
-  const managers = raw ? raw.split(',').map(s => normalizeEmail(s)).filter(Boolean) : [];
+  const managers = (process.env.MANAGER_EMAILS || '').split(',').map(s => normalizeEmail(s)).filter(Boolean);
+  // Missing/empty => leave existing is_manager flags untouched (see syncAdmins).
+  if (!managers.length) return;
   const { rows } = await pool.query('SELECT id, email FROM users');
   for (const u of rows) {
     const shouldBe = !!(u.email && managers.includes(normalizeEmail(u.email)));
